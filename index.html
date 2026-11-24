@@ -1,0 +1,1089 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SNSシェルフ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f766e'/%3E%3Crect x='9' y='29' width='46' height='4' rx='2' fill='%23fff'/%3E%3Crect x='9' y='52' width='46' height='4' rx='2' fill='%23fff'/%3E%3Ccircle cx='19' cy='19' r='7.5' fill='%23fbbf24'/%3E%3Ccircle cx='36' cy='19' r='7.5' fill='%23f87171'/%3E%3Crect x='12' y='37' width='20' height='12' rx='6' fill='%2393c5fd'/%3E%3Ccircle cx='44' cy='43' r='6' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f5f4f0;--panel:#fff;--panel2:#faf9f6;--ink:#1c1e22;--mut:#6b6f76;--line:#e4e1da;
+  --acc:#0f766e;--acc2:#0b5d56;--accs:#dcefeb;--warn:#b45309;--warns:#fdf1e2;--danger:#c2410c;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.06);--chip:#fff;color-scheme:light;
+  --closed:#d6d6d6;--closed-ink:#555;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#141619;--panel:#1c1f23;--panel2:#191c20;--ink:#e7e5e1;--mut:#9ba0a7;--line:#2d3137;
+  --acc:#2dd4bf;--acc2:#5eead4;--accs:#123631;--warn:#fbbf24;--warns:#3a2a10;--danger:#fb923c;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);--chip:#23272c;color-scheme:dark;
+  --closed:#3b3e43;--closed-ink:#a3a7ad;
+}}
+:root[data-theme=dark]{
+  --bg:#141619;--panel:#1c1f23;--panel2:#191c20;--ink:#e7e5e1;--mut:#9ba0a7;--line:#2d3137;
+  --acc:#2dd4bf;--acc2:#5eead4;--accs:#123631;--warn:#fbbf24;--warns:#3a2a10;--danger:#fb923c;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25);--chip:#23272c;color-scheme:dark;
+  --closed:#3b3e43;--closed-ink:#a3a7ad;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit}
+
+/* ===== header ===== */
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:10px 18px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;white-space:nowrap}
+.logo svg{width:26px;height:26px}
+.addbar{flex:1 1 420px;display:flex;min-width:0;background:var(--panel);border:1.5px solid var(--acc);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+.addbar input{flex:1;min-width:0;border:0;background:transparent;padding:8px 12px;outline:none}
+.addbar button{border:0;background:var(--acc);color:#fff;padding:0 16px;font-weight:600}
+:root[data-theme=dark] .addbar button{color:#062b27}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .addbar button{color:#062b27}}
+.search{flex:0 1 220px;min-width:0;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:7px 10px;outline:none}
+.search:focus,.addbar:focus-within{box-shadow:0 0 0 3px var(--accs)}
+.sel{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:7px 8px}
+.ibtn{border:1px solid var(--line);background:var(--panel);border-radius:10px;width:36px;height:36px;display:grid;place-items:center;padding:0}
+.ibtn:hover{border-color:var(--acc)}
+.ibtn svg{width:18px;height:18px}
+.ibtn:disabled{opacity:.35;cursor:default}
+.ibtn:disabled:hover{border-color:var(--line)}
+.ibtn.undo{position:relative}
+.ibtn.undo span{position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--acc);color:#fff;font-size:10px;font-weight:700;line-height:17px;text-align:center}
+.ibtn.undo span:empty{display:none}
+.state{font-size:12px;color:var(--mut);white-space:nowrap;border:0;background:none;padding:4px 6px;border-radius:8px}
+.state.ok::before{content:"●";color:#16a34a;margin-right:4px}
+.state.warn{color:var(--warn)}
+.state.warn::before{content:"▲";margin-right:4px}
+
+.banner{margin:12px 18px 0;padding:10px 14px;border-radius:10px;background:var(--warns);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.banner:empty{display:none}
+.banner .sp{flex:1}
+
+/* ===== layout ===== */
+.layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;padding:14px 18px 60px}
+.side{position:sticky;top:72px;align-self:start;display:flex;flex-direction:column;gap:2px}
+.side .nav{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;border:0;background:none;text-align:left;width:100%}
+.side .nav:hover{background:var(--panel)}
+.side .nav.on{background:var(--accs);color:var(--acc2);font-weight:600}
+.side .nav .n{margin-left:auto;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums}
+.side .nav .ic{width:20px;height:20px;flex:none}
+.side hr{border:0;border-top:1px solid var(--line);margin:8px 4px}
+.side .addsite{color:var(--mut)}
+
+.site{margin-bottom:26px}
+.site h2{display:flex;align-items:center;gap:9px;font-size:16px;margin:2px 2px 10px}
+.site h2 .ic{width:24px;height:24px}
+.site h2 small{color:var(--mut);font-weight:400;font-size:12px}
+.site h2 .tbtn{margin-left:2px}
+.tbtn{border:0;background:none;color:var(--mut);border-radius:7px;padding:2px 7px;font-size:12px}
+.tbtn:hover{background:var(--panel);color:var(--ink)}
+
+.cat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 12px 12px;margin-bottom:10px;position:relative}
+.cathead{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mut);min-height:26px}
+.cathead .grip{cursor:grab;opacity:.45;font-size:12px;letter-spacing:-2px;padding:0 2px;user-select:none}
+.cathead .cname{font-weight:700;color:var(--ink);cursor:text;padding:1px 4px;border-radius:5px}
+.cathead .cname:hover{background:var(--panel2)}
+.cathead .cnt{font-size:12px}
+.cathead .sp{flex:1}
+.cathead input{font-weight:700;border:1px solid var(--acc);border-radius:6px;padding:1px 6px;background:var(--panel);outline:none;width:180px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-height:34px}
+.cat.mark-t::before,.cat.mark-b::after{content:"";position:absolute;left:8px;right:8px;height:3px;border-radius:2px;background:var(--acc)}
+.cat.mark-t::before{top:-7px}.cat.mark-b::after{bottom:-7px}
+
+.chip{position:relative;display:inline-flex}
+.chip a{display:inline-flex;align-items:center;gap:7px;height:36px;padding:3px 14px 3px 3px;border-radius:999px;background:var(--chip);border:1px solid var(--line);text-decoration:none;max-width:260px;transition:transform .12s,box-shadow .12s,border-color .12s}
+.chip a:hover{border-color:var(--acc);box-shadow:var(--shadow);transform:translateY(-1px)}
+.chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip .memo-dot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex:none;margin-left:-3px}
+.chip .ed{position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:var(--panel);display:none;place-items:center;padding:0;font-size:11px;box-shadow:var(--shadow)}
+.chip:hover .ed,.chip .ed:focus-visible{display:grid}
+.chip .ed:hover{border-color:var(--acc);color:var(--acc)}
+.chip.stale a{opacity:.5}
+.chip.stale a:hover{opacity:1}
+.chip.stale .av img{filter:grayscale(1)}
+.chip.dragging{opacity:.3}
+.chip.mark-l::before,.chip.mark-r::after{content:"";position:absolute;top:2px;bottom:2px;width:3px;border-radius:2px;background:var(--acc)}
+.chip.mark-l::before{left:-6px}.chip.mark-r::after{right:-6px}
+.chip.flash a{animation:flash 1.6s ease-out}
+@keyframes flash{0%,30%{box-shadow:0 0 0 4px var(--acc);border-color:var(--acc)}100%{box-shadow:0 0 0 0 transparent}}
+.av{position:relative;width:28px;height:28px;border-radius:50%;flex:none;overflow:hidden;background:hsl(var(--h) 55% 48%);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+.av i{font-style:normal}
+.av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .2s;background:var(--panel)}
+.av img.ld{opacity:1}
+.addchip{height:36px;min-width:36px;border-radius:999px;border:1.5px dashed var(--line);background:none;color:var(--mut);font-size:18px;line-height:1;padding:0 12px}
+.addchip:hover{border-color:var(--acc);color:var(--acc)}
+.chips.mark-end .addchip{box-shadow:-6px 0 0 -3px var(--acc)}
+.addcat{border:1.5px dashed var(--line);background:none;color:var(--mut);border-radius:12px;padding:8px 14px;width:100%;text-align:left}
+.addcat:hover{border-color:var(--acc);color:var(--acc)}
+.empty{color:var(--mut);padding:40px 10px;text-align:center}
+.hint-first{background:var(--panel);border:1px dashed var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px;color:var(--mut)}
+.hint-first b{color:var(--ink)}
+kbd{font:12px ui-monospace,Consolas,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:var(--panel)}
+
+/* ===== dialogs ===== */
+dialog{border:1px solid var(--line);border-radius:14px;padding:0;background:var(--panel);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.25);width:min(520px,calc(100vw - 32px))}
+dialog::backdrop{background:rgba(10,12,15,.45)}
+dialog form{padding:18px 20px 16px;display:flex;flex-direction:column;gap:11px}
+dialog h3{margin:0 0 2px;font-size:16px}
+dialog label{display:flex;flex-direction:column;gap:3px}
+dialog label>span,.lbl{font-size:12px;color:var(--mut);font-weight:600}
+dialog input,dialog select,dialog textarea{border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:7px 10px;outline:none;width:100%}
+dialog input:focus,dialog select:focus,dialog textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--accs)}
+dialog textarea{resize:vertical}
+dialog label.chk{flex-direction:row;align-items:center;gap:8px;font-size:13px;cursor:pointer;width:fit-content}
+dialog label.chk input{width:16px;height:16px;margin:0;accent-color:var(--acc)}
+.chkrow{display:flex;gap:22px;flex-wrap:wrap}
+.iconrow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);margin-top:-4px}
+.iconrow img{width:28px;height:28px;border-radius:50%;object-fit:cover;background:var(--panel2)}
+dialog label.chk.off{opacity:.5;cursor:default}
+dialog label.chk.off input{cursor:default}
+.chip.closed a{background:var(--closed);border-color:var(--closed);color:var(--closed-ink)}
+.chip.closed a:hover{border-color:var(--mut)}
+.toggle{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--mut);white-space:nowrap;cursor:pointer;user-select:none}
+.toggle input{appearance:none;width:34px;height:20px;border-radius:999px;background:var(--line);position:relative;margin:0;cursor:pointer;transition:background .15s;flex:none}
+.toggle input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.toggle input:checked{background:var(--acc)}
+.toggle input:checked::after{transform:translateX(14px)}
+.toggle input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:12px;color:var(--mut);margin-top:-6px;min-height:18px}
+.hint.ok{color:var(--acc)}
+.hint.ng{color:var(--warn)}
+.warn{font-size:12px;color:var(--warn)}
+.warn:empty{display:none}
+.urlprev{font-size:12px;color:var(--mut);word-break:break-all}
+.urlprev a{color:var(--acc)}
+.btns{display:flex;gap:8px;align-items:center;margin-top:4px}
+.btns .sp{flex:1}
+.btn{border:1px solid var(--line);background:var(--panel);border-radius:9px;padding:7px 14px}
+.btn:hover{border-color:var(--acc)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+:root[data-theme=dark] .btn.pri{color:#062b27}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .btn.pri{color:#062b27}}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover{border-color:var(--danger)}
+.catpick{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.catpick button{border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:4px 12px}
+.catpick button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+:root[data-theme=dark] .catpick button.on{color:#062b27}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .catpick button.on{color:#062b27}}
+.catpick input{width:150px;border-radius:999px;padding:4px 12px}
+.set-sec{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.set-sec h4{margin:0;font-size:13px}
+.set-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.set-row input[type=number]{width:80px}
+.small{font-size:12px;color:var(--mut)}
+
+.menu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:4px;min-width:150px}
+.menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:7px 10px;border-radius:7px}
+.menu button:hover{background:var(--panel2)}
+.menu button.danger{color:var(--danger)}
+
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 14px;display:flex;gap:12px;align-items:center;transition:.2s;z-index:60;max-width:calc(100vw - 32px)}
+.toast.show{opacity:1;transform:translateX(-50%);pointer-events:auto}
+.toast button{border:0;background:none;color:var(--acc);font-weight:700;padding:0}
+:root:not([data-theme=dark]) .toast button{color:#5eead4}
+.dropover{position:fixed;inset:0;z-index:40;background:color-mix(in srgb,var(--acc) 14%,transparent);border:3px dashed var(--acc);display:none;place-items:center;font-size:20px;font-weight:700;color:var(--acc2);pointer-events:none}
+.dropover.show{display:grid}
+
+@media (max-width:760px){
+  .top{flex-wrap:wrap;padding:10px 16px;gap:8px}
+  .logo{font-size:0;gap:0}
+  .sel{padding:7px 4px}
+  .addbar{order:5;flex-basis:100%}
+  .search{flex:1 1 120px}
+  .layout{grid-template-columns:1fr;padding:12px 16px 60px}
+  .side{position:static;flex-direction:row;overflow-x:auto;gap:4px}
+  .side .nav{width:auto;white-space:nowrap}
+  .side hr{display:none}
+  .banner{margin:12px 16px 0}
+  .grid2{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f766e"/><rect x="9" y="29" width="46" height="4" rx="2" fill="#fff"/><rect x="9" y="52" width="46" height="4" rx="2" fill="#fff"/><circle cx="19" cy="19" r="7.5" fill="#fbbf24"/><circle cx="36" cy="19" r="7.5" fill="#f87171"/><rect x="12" y="37" width="20" height="12" rx="6" fill="#93c5fd"/><circle cx="44" cy="43" r="6" fill="#fff"/></svg>SNSシェルフ</div>
+  <form class="addbar" id="addForm"><input id="addInput" placeholder="URLを貼り付けて登録（画面のどこでも Ctrl+V でもOK）" autocomplete="off"><button>登録</button></form>
+  <input class="search" id="q" type="search" placeholder="検索（ / ）" autocomplete="off">
+  <select class="sel" id="sort" title="並び順">
+    <option value="manual">手動の順</option>
+    <option value="name">名前順</option>
+    <option value="recent">最近開いた順</option>
+    <option value="old">開いていない順</option>
+  </select>
+  <label class="toggle" title="閉鎖済みのチャンネルを表示する"><input type="checkbox" id="showClosed">閉鎖済み</label>
+  <button class="state" id="state" type="button"></button>
+  <button class="ibtn undo" id="undoBtn" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span id="undoN"></span></button>
+  <button class="ibtn" id="setBtn" type="button" title="設定"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</header>
+<div class="banner" id="banner"></div>
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <main id="main"></main>
+</div>
+
+<!-- 登録・編集 -->
+<dialog id="itemDlg"><form id="itemForm" method="dialog">
+  <h3 id="iTitle">登録</h3>
+  <label id="urlRow"><span>URL または ID</span><input id="fUrl" autocomplete="off" placeholder="https://www.youtube.com/@HikakinTV/videos"></label>
+  <div class="hint" id="parseMsg"></div>
+  <div class="iconrow" id="fIconRow" hidden><img id="fIconImg" alt="">ページのアイコンを使います</div>
+  <div class="grid2">
+    <label><span>サイト</span><select id="fSite"></select></label>
+    <label><span>ID</span><input id="fId" autocomplete="off"></label>
+  </div>
+  <label><span>表示名</span><input id="fName" autocomplete="off" placeholder="空欄なら ID"></label>
+  <div><span class="lbl">カテゴリ</span><div class="catpick" id="fCats"></div></div>
+  <label><span>メモ（なぜ保存したか など）</span><textarea id="fMemo" rows="2"></textarea></label>
+  <div class="chkrow">
+    <label class="chk"><input type="checkbox" id="fClosed">閉鎖済み</label>
+    <label class="chk" id="noAvRow"><input type="checkbox" id="fNoAv">アイコンを取得しない</label>
+  </div>
+  <div class="warn" id="dupMsg"></div>
+  <div class="urlprev">開くURL：<a id="fPrev" target="_blank" rel="noopener"></a></div>
+  <div class="small" id="fInfo"></div>
+  <div class="btns">
+    <button type="button" class="btn danger" id="fDel">削除</button>
+    <button type="button" class="btn" id="fAv">アイコン再取得</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>キャンセル</button>
+    <button class="btn pri" id="fOk">登録</button>
+  </div>
+</form></dialog>
+
+<!-- サイト編集 -->
+<dialog id="siteDlg"><form id="siteForm" method="dialog">
+  <h3 id="sTitle">サイトを編集</h3>
+  <label><span>表示名</span><input id="sName" autocomplete="off" placeholder="YouTubeチャンネル"></label>
+  <label><span>URL（ID の場所を {ID} にする）</span><input id="sTpl" autocomplete="off" placeholder="https://www.youtube.com/@{ID}/videos"></label>
+  <div class="hint" id="sMsg"></div>
+  <label><span>別のドメイン（任意・URL判定用、カンマ区切り）</span><input id="sAlias" autocomplete="off" placeholder="twitter.com"></label>
+  <label><span>アイコンの取得（unavatar.io）</span><select id="sAv"></select></label>
+  <div class="btns">
+    <button type="button" class="btn danger" id="sDel">サイトを削除</button>
+    <span class="sp"></span>
+    <button type="button" class="btn" data-close>キャンセル</button>
+    <button class="btn pri" id="sOk">保存</button>
+  </div>
+</form></dialog>
+
+<!-- 設定 -->
+<dialog id="setDlg"><form method="dialog" id="setForm">
+  <h3>設定</h3>
+  <div class="set-sec">
+    <h4>保存ファイル（JSON）</h4>
+    <div class="small" id="fileInfo"></div>
+    <div class="set-row">
+      <button type="button" class="btn" id="bNew">新しく作る</button>
+      <button type="button" class="btn" id="bOpen">既存のJSONを開く</button>
+      <button type="button" class="btn" id="bDisc">接続を解除</button>
+    </div>
+  </div>
+  <div class="set-sec">
+    <h4>バックアップ</h4>
+    <div class="set-row">
+      <button type="button" class="btn" id="bExp">JSONを書き出す</button>
+      <button type="button" class="btn" id="bImp">JSONから読み込む</button>
+      <input type="file" id="impFile" accept=".json,application/json" hidden>
+    </div>
+  </div>
+  <div class="set-sec">
+    <h4>アイコン（unavatar.io・1日25回まで）</h4>
+    <div class="small" id="avInfo"></div>
+    <div class="set-row"><button type="button" class="btn" id="bAvRetry">取れなかった分をやり直す</button></div>
+  </div>
+  <div class="set-sec">
+    <h4>表示</h4>
+    <label class="set-row" style="flex-direction:row"><span style="font-weight:400;color:var(--ink);font-size:14px">しばらく見ていない＝</span><input type="number" id="stDays" min="1" max="3650"><span style="font-weight:400;color:var(--ink);font-size:14px">日以上開いていない</span></label>
+    <div class="small">該当するページは薄く表示し、左の「しばらく見ていない」にまとめます。</div>
+  </div>
+  <div class="btns"><span class="sp"></span><button class="btn pri" data-close type="button">閉じる</button></div>
+</form></dialog>
+
+<div class="toast" id="toast"><span id="toastMsg"></span><button id="toastAct" type="button"></button></div>
+<div class="dropover" id="dropover">ここにドロップして登録</div>
+
+<script>
+'use strict';
+/* ============ 基本 ============ */
+const LS_DATA = 'snsShelf.data', LS_UI = 'snsShelf.ui';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+const DAY = 864e5;
+const AV_PROVIDERS = [['', 'なし（頭文字）'], ['youtube', 'YouTube'], ['x', 'X（Twitter）'], ['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['twitch', 'Twitch'], ['bluesky', 'Bluesky'], ['github', 'GitHub'], ['reddit', 'Reddit'], ['soundcloud', 'SoundCloud'], ['telegram', 'Telegram']];
+
+function seed() {
+  return { app: 'sns-shelf', version: 1, updatedAt: 0, settings: { staleDays: 30 }, sites: [
+    { id: uid(), name: 'YouTubeチャンネル', template: 'https://www.youtube.com/@{ID}/videos', aliases: '', avatar: 'youtube',
+      cats: [{ id: uid(), name: '趣味', items: [] }, { id: uid(), name: '勉強', items: [] }] },
+    { id: uid(), name: 'Xユーザー', template: 'https://x.com/{ID}', aliases: 'twitter.com', avatar: 'x',
+      cats: [{ id: uid(), name: 'インフルエンサー', items: [] }, { id: uid(), name: '公式', items: [] }] },
+  ]};
+}
+function normalize(d) {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.sites)) throw new Error('SNSシェルフのデータではありません');
+  d.app = 'sns-shelf'; d.version = 1; d.updatedAt = +d.updatedAt || 0;
+  d.settings = Object.assign({ staleDays: 30 }, d.settings || {});
+  for (const s of d.sites) {
+    s.id ||= uid(); s.name = String(s.name || 'サイト'); s.template = String(s.template || '');
+    s.aliases = String(s.aliases || ''); s.avatar = String(s.avatar || '');
+    s.cats = Array.isArray(s.cats) ? s.cats : [];
+    for (const c of s.cats) {
+      c.id ||= uid(); c.name = String(c.name || 'カテゴリ'); c.items = Array.isArray(c.items) ? c.items : [];
+      for (const it of c.items) {
+        it.id ||= uid(); it.pid = String(it.pid || ''); it.name = String(it.name || '');
+        it.memo = String(it.memo || ''); it.added = +it.added || Date.now(); it.opened = +it.opened || 0;
+        if (!d.avFix1 && !it.av) { delete it.avMiss; delete it.avFails; } // 旧版は回数制限での失敗も数えていたのでやり直す
+      }
+    }
+  }
+  d.avFix1 = 1;
+  return d;
+}
+
+let data;
+try { data = normalize(JSON.parse(localStorage.getItem(LS_DATA))); } catch { data = seed(); }
+let ui = { view: 'all', sort: 'manual', showClosed: true };
+try { Object.assign(ui, JSON.parse(localStorage.getItem(LS_UI)) || {}); } catch {}
+const saveUi = () => { try { localStorage.setItem(LS_UI, JSON.stringify(ui)); } catch {} };
+
+const findSite = id => data.sites.find(s => s.id === id);
+function findItem(iid) {
+  for (const s of data.sites) for (const c of s.cats) { const i = c.items.findIndex(x => x.id === iid); if (i >= 0) return { s, c, i, it: c.items[i] }; }
+  return null;
+}
+const urlOf = (site, pid) => site.template.split('{ID}').join(encodeURIComponent(pid));
+const dispName = it => it.name || it.pid;
+const isStale = it => !it.closed && Date.now() - (it.opened || it.added) > data.settings.staleDays * DAY;
+function hue(s) { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) >>> 0; return h % 360; }
+function ago(t) {
+  const d = Math.floor((Date.now() - t) / DAY);
+  if (d <= 0) return '今日'; if (d === 1) return '昨日'; if (d < 31) return d + '日前';
+  if (d < 365) return Math.floor(d / 30) + 'か月前'; return Math.floor(d / 365) + '年前';
+}
+
+/* ============ IndexedDB（ファイルハンドル保持） ============ */
+function idb() {
+  return new Promise((res, rej) => { const r = indexedDB.open('snsShelf', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+}
+async function idbGet(k) { const db = await idb(); return new Promise(res => { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); }); }
+async function idbSet(k, v) { const db = await idb(); return new Promise(res => { const t = db.transaction('kv', 'readwrite'); v === undefined ? t.objectStore('kv').delete(k) : t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = res; }); }
+
+/* ============ 保存 ============ */
+const hasFS = 'showSaveFilePicker' in window;
+let fh = null, fState = hasFS ? 'none' : 'unsupported'; // none|need|ok|err|unsupported
+let saving = false, saveTimer = 0, wq = Promise.resolve();
+const FTYPES = [{ description: 'JSON', accept: { 'application/json': ['.json'] } }];
+
+function persistLocal() { try { localStorage.setItem(LS_DATA, JSON.stringify(data)); } catch (e) { console.warn(e); } }
+function save(rerender = true) {
+  data.updatedAt = Date.now();
+  persistLocal();
+  if (fState === 'ok') { saving = true; clearTimeout(saveTimer); saveTimer = setTimeout(writeFile, 400); }
+  if (rerender) render(); else renderState();
+}
+function writeFile() {
+  clearTimeout(saveTimer);
+  if (!fh || fState !== 'ok') return wq;
+  saving = true; renderState();
+  wq = wq.then(async () => {
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify(data, null, 1)); await w.close();
+    saving = false; renderState();
+  }).catch(e => { console.error(e); saving = false; fState = 'err'; renderState(); renderBanner(); });
+  return wq;
+}
+async function loadFromFile() {
+  const txt = await (await fh.getFile()).text();
+  if (!txt.trim()) { await writeFile(); return; }
+  let d;
+  try { d = normalize(JSON.parse(txt)); } catch (e) { fState = 'err'; renderBanner(); renderState(); toast('JSONを読めませんでした：' + e.message); return; }
+  if (data.updatedAt > d.updatedAt && JSON.stringify(data.sites) !== JSON.stringify(d.sites)) {
+    if (confirm('ブラウザ内のデータの方がファイルより新しいです。\n\nOK：ブラウザ内のデータでファイルを上書き\nキャンセル：ファイルの内容を使う')) { await writeFile(); return; }
+  }
+  data = d; persistLocal(); render();
+}
+async function connectNew() {
+  try {
+    const h = await showSaveFilePicker({ suggestedName: 'sns-shelf.json', types: FTYPES });
+    fh = h; await idbSet('file', h); fState = 'ok'; await writeFile();
+    toast('保存先を「' + h.name + '」にしました'); render();
+  } catch (e) { if (e.name !== 'AbortError') toast('作れませんでした：' + e.message); }
+}
+async function connectOpen() {
+  try {
+    const [h] = await showOpenFilePicker({ types: FTYPES });
+    if (await h.requestPermission({ mode: 'readwrite' }) !== 'granted') { toast('書き込みが許可されませんでした'); return; }
+    fh = h; await idbSet('file', h); fState = 'ok';
+    await loadFromFile(); toast('「' + h.name + '」を開きました'); render();
+  } catch (e) { if (e.name !== 'AbortError') toast('開けませんでした：' + e.message); }
+}
+async function reconnect() {
+  try {
+    if (await fh.requestPermission({ mode: 'readwrite' }) === 'granted') { fState = 'ok'; await loadFromFile(); render(); }
+  } catch (e) { toast('再接続できませんでした：' + e.message); }
+}
+async function disconnect() {
+  await writeFile(); fh = null; fState = 'none'; await idbSet('file', undefined); render();
+}
+async function initFile() {
+  if (!hasFS) return;
+  try {
+    const h = await idbGet('file');
+    if (!h) return;
+    fh = h;
+    const p = await h.queryPermission({ mode: 'readwrite' });
+    if (p === 'granted') { fState = 'ok'; await loadFromFile(); } else fState = 'need';
+  } catch (e) { console.warn(e); fState = 'need'; }
+  render();
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden && saving) writeFile(); });
+window.addEventListener('beforeunload', e => { if (saving) { writeFile(); e.preventDefault(); e.returnValue = ''; } });
+
+/* ============ URL 解析 ============ */
+const normHost = h => h.toLowerCase().replace(/^(www|m|mobile)\./, '');
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function toNorm(s) {
+  s = s.trim(); if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) { if (/^[\w-]+(\.[\w-]+)+(\/|$)/.test(s)) s = 'https://' + s; else return null; }
+  try { const u = new URL(s); return normHost(u.hostname) + u.pathname + u.search + u.hash; } catch { return null; }
+}
+function matchers(site) {
+  const body = site.template.replace(/^https?:\/\//i, '');
+  const j = body.indexOf('{ID}'); if (j < 0) return [];
+  const slash = body.indexOf('/');
+  if (slash >= 0 && j > slash) {
+    const hosts = [body.slice(0, slash), ...site.aliases.split(/[\s,、]+/)].filter(Boolean).map(normHost);
+    const pre = body.slice(slash, j);
+    return [...new Set(hosts)].map(h => new RegExp('^' + reEsc(h) + reEsc(pre) + '([^/?#]+)', 'i'));
+  }
+  const hostT = slash >= 0 ? body.slice(0, slash) : body; const k = hostT.indexOf('{ID}');
+  return [new RegExp('^' + reEsc(normHost(hostT.slice(0, k))) + '([^/?#.]+)' + reEsc(hostT.slice(k + 4)) + '(?:[/?#]|$)', 'i')];
+}
+function parseInput(str) {
+  const n = toNorm(str);
+  if (!n) { const pid = str.trim().replace(/^@/, ''); return pid ? { pid, isUrl: false } : null; }
+  for (const s of data.sites) for (const re of matchers(s)) {
+    const m = n.match(re);
+    if (m) { let pid = m[1]; try { pid = decodeURIComponent(pid); } catch {} return { site: s, pid: pid.replace(/^@/, ''), isUrl: true }; }
+  }
+  return { isUrl: true, nomatch: true };
+}
+function findDup(siteId, pid, exceptId) {
+  const s = findSite(siteId); if (!s || !pid) return null; const k = pid.toLowerCase();
+  for (const c of s.cats) for (const it of c.items) if (it.id !== exceptId && it.pid.toLowerCase() === k) return { c, it };
+  return null;
+}
+
+/* ============ アイコン ============ */
+const SITE_ICONS = {
+  youtube: '<svg class="ic" viewBox="0 0 24 24"><rect x="1.5" y="4.5" width="21" height="15" rx="4.5" fill="#ff0033"/><path d="M10 8.8v6.4l5.6-3.2z" fill="#fff"/></svg>',
+  x: '<svg class="ic" viewBox="0 0 24 24"><rect x="1.5" y="1.5" width="21" height="21" rx="5" fill="currentColor"/><path d="M6.5 6h3.4l2.6 3.6L15.6 6h1.7l-4 4.6L17.7 18h-3.4l-2.8-3.9L8.1 18H6.4l4.3-4.9z" fill="var(--bg)"/></svg>',
+};
+function siteIcon(s) {
+  const t = (s.template + ' ' + s.avatar).toLowerCase();
+  if (/youtube/.test(t)) return SITE_ICONS.youtube;
+  if (/x\.com|twitter|(^|\s)x$/.test(t)) return SITE_ICONS.x;
+  const ch = esc([...s.name][0] || '?');
+  return `<svg class="ic" viewBox="0 0 24 24"><rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="hsl(${hue(s.name)} 45% 45%)"/><text x="12" y="16.5" font-size="12" text-anchor="middle" fill="#fff" font-weight="700">${ch}</text></svg>`;
+}
+// 取れなかったら 1回目→2日後、2回目→7日後に再挑戦、3回失敗したらあきらめる（編集画面の「アイコン再取得」でやり直し）
+const AV_RETRY = [0, 2 * DAY, 7 * DAY];
+const AV_MAX_FAILS = 3;
+function avWanted(site, it) {
+  if (it.av || !site.avatar || !it.pid || it.noAv || it.closed || iconLoading.has(it.id)) return false;
+  const n = it.avFails || 0;
+  if (n >= AV_MAX_FAILS) return false;
+  return !(it.avMiss && Date.now() - it.avMiss < AV_RETRY[n]);
+}
+function resetAv(it) { delete it.av; delete it.avMiss; delete it.avFails; }
+function avatarHtml(site, it) {
+  const init = esc(([...(dispName(it) || '?')][0] || '?').toUpperCase());
+  if (!it.av && avWanted(site, it)) queueAv(it.id);
+  return `<span class="av" style="--h:${hue(it.pid)}"><i>${init}</i>${it.av ? `<img src="${it.av}" class="ld" alt="">` : ''}</span>`;
+}
+function patchAv(id) {
+  const f = findItem(id), el = document.querySelector(`.chip[data-iid="${id}"] .av`);
+  if (f && el) el.outerHTML = avatarHtml(f.s, f.it);
+}
+/* 画像（Blob）を 56px の正方形に切り抜いて data URL にする */
+async function blobToAv(blob) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas'); c.width = c.height = 56;
+  const m = Math.min(bmp.width, bmp.height);
+  c.getContext('2d').drawImage(bmp, (bmp.width - m) / 2, (bmp.height - m) / 2, m, m, 0, 0, 56, 56);
+  bmp.close();
+  const url = c.toDataURL('image/webp', .82);
+  if (url.length > 24000) throw new Error('too large');
+  return url;
+}
+/* ---- unavatar：1件ずつ順番に取得。1日の上限（429）に達したら reset まで止め、失敗には数えない ---- */
+const LS_AVPAUSE = 'snsShelf.avPause';
+let avPause = 0; try { avPause = +localStorage.getItem(LS_AVPAUSE) || 0; } catch {}
+const avQueue = [], iconLoading = new Set();
+let avBusy = false, avTimer = 0;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function queueAv(id) {
+  if (iconLoading.has(id) || avQueue.includes(id)) return;
+  avQueue.push(id);
+  if (!avBusy) setTimeout(runAvQueue, 0);
+}
+function setAvPause(until, notify) {
+  avPause = until; try { localStorage.setItem(LS_AVPAUSE, String(until)); } catch {}
+  clearTimeout(avTimer); avTimer = setTimeout(runAvQueue, Math.min(until - Date.now() + 3000, 2 ** 31 - 1));
+  if (notify) toast(`unavatar の1日の上限に達しました。残り ${avQueue.length} 件のアイコンは ${new Date(until).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} ごろから取得します`);
+}
+async function runAvQueue() {
+  if (avBusy) return; avBusy = true;
+  try {
+    while (avQueue.length && Date.now() >= avPause) {
+      const id = avQueue.shift(); let f = findItem(id);
+      if (!f || !avWanted(f.s, f.it)) continue;
+      let r;
+      try { r = await fetch(`https://unavatar.io/${f.s.avatar}/${encodeURIComponent(f.it.pid)}?fallback=false`); }
+      catch { avQueue.unshift(id); setAvPause(Date.now() + 3 * 3600e3, false); break; } // 通信できない：3時間後に再開（失敗に数えない）
+      const reset = +r.headers.get('x-rate-limit-reset');
+      const resetAt = reset > Date.now() ? reset + 60e3 : Date.now() + 6 * 3600e3;
+      if (r.status === 429) { avQueue.unshift(id); setAvPause(resetAt, true); break; }
+      f = findItem(id);
+      if (f) {
+        if (r.ok) {
+          try { f.it.av = await blobToAv(await r.blob()); delete f.it.avMiss; delete f.it.avFails; }
+          catch { f.it.avMiss = Date.now(); f.it.avFails = (f.it.avFails || 0) + 1; }
+        } else if (r.status === 404 || r.status === 400) { f.it.avMiss = Date.now(); f.it.avFails = (f.it.avFails || 0) + 1; }
+        // それ以外（サーバー側の不調）は数えずに、次に開いたときにやり直す
+        save(false); patchAv(id);
+      }
+      if (r.headers.get('x-rate-limit-remaining') === '0') { setAvPause(resetAt, avQueue.length > 0); break; }
+      await sleep(250);
+    }
+  } finally { avBusy = false; }
+}
+if (avPause > Date.now()) avTimer = setTimeout(runAvQueue, Math.min(avPause - Date.now() + 3000, 2 ** 31 - 1));
+/* ---- ページ上の画像URL（ブックマークレットがコピーした3行目）からアイコンを作る ---- */
+async function iconFromUrl(id, url) {
+  iconLoading.add(id);
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error(r.status);
+    const av = await blobToAv(await r.blob());
+    const f = findItem(id); if (f) { f.it.av = av; delete f.it.avMiss; delete f.it.avFails; save(false); }
+  } catch (e) { console.warn('アイコンを読み込めませんでした', url, e); }
+  finally { iconLoading.delete(id); patchAv(id); } // 失敗したら unavatar の順番待ちに回る
+}
+
+/* ============ 描画 ============ */
+function sorted(items) {
+  const a = items.slice();
+  if (ui.sort === 'name') a.sort((x, y) => dispName(x).localeCompare(dispName(y), 'ja', { numeric: true, sensitivity: 'base' }));
+  else if (ui.sort === 'recent') a.sort((x, y) => (y.opened || 0) - (x.opened || 0));
+  else if (ui.sort === 'old') a.sort((x, y) => (x.opened || x.added) - (y.opened || y.added));
+  return a;
+}
+function matchQ(it, q) {
+  if (!q) return true;
+  const hay = (it.name + ' ' + it.pid + ' ' + it.memo).toLowerCase();
+  return q.split(/\s+/).every(w => hay.includes(w));
+}
+function chipHtml(site, it, canDrag) {
+  const url = urlOf(site, it.pid);
+  const tip = [dispName(it) + (it.closed ? '（閉鎖済み）' : ''), '@' + it.pid, it.memo && 'メモ：' + it.memo,
+    it.opened ? '最後に開いた：' + ago(it.opened) : 'まだ開いていない（登録 ' + ago(it.added) + '）'].filter(Boolean).join('\n');
+  return `<div class="chip${isStale(it) ? ' stale' : ''}${it.closed ? ' closed' : ''}" data-iid="${it.id}"${canDrag ? ' draggable="true"' : ''}>`
+    + `<a href="${esc(url)}" target="_blank" rel="noopener" draggable="false" title="${esc(tip)}">${avatarHtml(site, it)}<span class="nm">${esc(dispName(it))}</span>${it.memo ? '<span class="memo-dot"></span>' : ''}</a>`
+    + `<button class="ed" type="button" title="編集" data-act="edit">✎</button></div>`;
+}
+function render() {
+  renderSide(); renderMain(); renderState(); renderBanner();
+}
+function renderState() {
+  const b = $('#state');
+  if (fState === 'ok') { b.className = 'state ok'; b.textContent = saving ? '保存中…' : (fh?.name || '保存済み'); b.title = '「' + (fh?.name || '') + '」に自動保存しています'; }
+  else if (fState === 'unsupported') { b.className = 'state warn'; b.textContent = 'ブラウザ内のみ'; b.title = 'このブラウザはファイルへの自動保存に未対応です（Chrome を使ってください）'; }
+  else { b.className = 'state warn'; b.textContent = fState === 'need' ? '再接続が必要' : fState === 'err' ? '保存エラー' : 'ブラウザ内のみ'; b.title = 'クリックで保存ファイルの設定'; }
+}
+function renderBanner() {
+  const el = $('#banner');
+  if (fState === 'none') el.innerHTML = '<span>データはまだブラウザ内にだけ保存されています。JSONファイルを選ぶと、以後は変更のたびに自動で保存します。</span><span class="sp"></span><button class="btn pri" data-act="fnew" type="button">保存用JSONを作る</button><button class="btn" data-act="fopen" type="button">既存のJSONを開く</button>';
+  else if (fState === 'need') el.innerHTML = `<span>保存ファイル「${esc(fh?.name)}」への再接続が必要です（ブラウザの決まりで、開くたびに1回許可が要ります）。</span><span class="sp"></span><button class="btn pri" data-act="frecon" type="button">再接続</button>`;
+  else if (fState === 'err') el.innerHTML = '<span>保存ファイルに書き込めませんでした。ファイルが移動・削除されていないか確認してください。</span><span class="sp"></span><button class="btn pri" data-act="frecon" type="button">もう一度試す</button><button class="btn" data-act="fnew" type="button">別のファイルにする</button>';
+  else el.innerHTML = '';
+}
+function renderSide() {
+  const all = data.sites.reduce((n, s) => n + s.cats.reduce((m, c) => m + c.items.length, 0), 0);
+  const stale = data.sites.reduce((n, s) => n + s.cats.reduce((m, c) => m + c.items.filter(isStale).length, 0), 0);
+  if (ui.view !== 'all' && ui.view !== 'stale' && !findSite(ui.view)) ui.view = 'all';
+  let h = `<button class="nav${ui.view === 'all' ? ' on' : ''}" data-view="all"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>すべて<span class="n">${all}</span></button>`;
+  for (const s of data.sites) {
+    const n = s.cats.reduce((m, c) => m + c.items.length, 0);
+    h += `<button class="nav${ui.view === s.id ? ' on' : ''}" data-view="${s.id}">${siteIcon(s)}<span>${esc(s.name)}</span><span class="n">${n}</span></button>`;
+  }
+  h += `<hr><button class="nav${ui.view === 'stale' ? ' on' : ''}" data-view="stale"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>しばらく見ていない<span class="n">${stale}</span></button>`;
+  h += `<button class="nav addsite" data-act="addsite"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>サイトを追加</button>`;
+  $('#side').innerHTML = h;
+}
+function renderMain() {
+  const q = $('#q').value.trim().toLowerCase();
+  const stale = ui.view === 'stale';
+  const filtering = !!q || stale;
+  const canDrag = ui.sort === 'manual' && !filtering;
+  const sites = (ui.view === 'all' || stale) ? data.sites : data.sites.filter(s => s.id === ui.view);
+  const total = data.sites.reduce((n, s) => n + s.cats.reduce((m, c) => m + c.items.length, 0), 0);
+  let h = '';
+  if (!total && !filtering) h += `<div class="hint-first"><b>はじめに：</b>上の欄に YouTube や X のURLを貼ると、サイトとIDを自動で判定して登録します。画面のどこでも <kbd>Ctrl</kbd>+<kbd>V</kbd>、または別タブのアドレスバーからURLをドラッグしても登録できます。カテゴリの「＋」からも追加できます。</div>`;
+  let shown = 0;
+  for (const s of sites) {
+    let body = '';
+    for (const c of s.cats) {
+      const items = sorted(c.items.filter(it => matchQ(it, q) && (!stale || isStale(it)) && (ui.showClosed || !it.closed)));
+      if (filtering && !items.length) continue;
+      shown += items.length;
+      body += `<div class="cat" data-sid="${s.id}" data-cid="${c.id}">
+        <div class="cathead"${canDrag ? ' draggable="true"' : ''}>${canDrag ? '<span class="grip" title="ドラッグで並べ替え">⋮⋮</span>' : ''}<span class="cname" title="クリックで名前を変更">${esc(c.name)}</span><span class="cnt">${items.length}</span><span class="sp"></span>
+        ${items.some(it => !it.closed) ? `<button class="tbtn" type="button" data-act="openall" title="このカテゴリをまとめてタブで開く">↗ 全部開く</button>` : ''}<button class="tbtn" type="button" data-act="catmenu" title="メニュー">⋯</button></div>
+        <div class="chips">${items.map(it => chipHtml(s, it, canDrag)).join('')}${filtering ? '' : '<button class="addchip" type="button" data-act="add" title="このカテゴリに登録">＋</button>'}</div></div>`;
+    }
+    if (filtering && !body) continue;
+    const n = s.cats.reduce((m, c) => m + c.items.length, 0);
+    h += `<section class="site" data-sid="${s.id}"><h2>${siteIcon(s)}${esc(s.name)} <small>${n}件</small><button class="tbtn" type="button" data-act="editsite" title="サイトの表示名とURLを編集">編集</button></h2>${body}${filtering ? '' : '<button class="addcat" type="button" data-act="addcat">＋ カテゴリを追加</button>'}</section>`;
+  }
+  if (filtering && !shown) h += `<div class="empty">${stale ? 'しばらく見ていないページはありません 🎉' : '「' + esc(q) + '」に一致するページはありません'}</div>`;
+  if (!data.sites.length) h += '<div class="empty">サイトがありません。左の「サイトを追加」から作ってください。</div>';
+  $('#main').innerHTML = h;
+}
+
+/* ============ トースト・取り消し ============ */
+let toastT = 0;
+function toast(msg, actLabel, act) {
+  $('#toastMsg').textContent = msg;
+  const b = $('#toastAct'); b.textContent = actLabel || ''; b.hidden = !actLabel; b.onclick = () => { act?.(); $('#toast').classList.remove('show'); };
+  $('#toast').classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => $('#toast').classList.remove('show'), actLabel ? 7000 : 3200);
+}
+/* 取り消し履歴：変更の直前の状態を最大 UNDO_MAX 件まで覚える。
+   localStorage に残すので開き直しても使える。容量を抑えるためアイコン画像（av）は含めない */
+const UNDO_MAX = 30, LS_UNDO = 'snsShelf.undo';
+let undoStack = [];
+try { undoStack = JSON.parse(localStorage.getItem(LS_UNDO)) || []; } catch {}
+function persistUndo() {
+  for (let k = 0; k < undoStack.length || k === 0; k++) {
+    try { localStorage.setItem(LS_UNDO, JSON.stringify(undoStack.slice(k))); return; }
+    catch (e) { if (e.name !== 'QuotaExceededError') return; } // 入りきらなければ古い分を除いて保存（画面上の履歴はそのまま）
+  }
+}
+const avMemo = new Map(); // 履歴に入れないアイコン画像の控え（id → {pid, av}）
+function pushUndo(label) {
+  for (const s of data.sites) for (const c of s.cats) for (const it of c.items) if (it.av) avMemo.set(it.id, { pid: it.pid, av: it.av });
+  undoStack.push({ label, snap: JSON.stringify(data, (k, v) => k === 'av' ? undefined : v), at: Date.now() });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  persistUndo(); renderUndo();
+}
+function undo() {
+  const u = undoStack.pop(); if (!u) return;
+  // 開いた日時・取得したアイコンは、戻したあとも新しい方を残す
+  const keep = new Map();
+  for (const s of data.sites) for (const c of s.cats) for (const it of c.items) keep.set(it.id, it);
+  data = normalize(JSON.parse(u.snap));
+  for (const s of data.sites) for (const c of s.cats) for (const it of c.items) {
+    const n = keep.get(it.id), m = avMemo.get(it.id);
+    if (n && (n.opened || 0) > (it.opened || 0)) it.opened = n.opened;
+    if (n?.av && n.pid === it.pid) it.av = n.av;
+    else if (m && m.pid === it.pid) it.av = m.av;
+  }
+  save(); persistUndo(); renderUndo();
+  toast('元に戻しました：' + u.label);
+}
+function renderUndo() {
+  const b = $('#undoBtn'), u = undoStack[undoStack.length - 1];
+  b.disabled = !u;
+  b.title = u ? `元に戻す（Ctrl+Z）\n${u.label}（${ago(u.at)}）${undoStack.length > 1 ? `\nほか ${undoStack.length - 1} 件の履歴` : ''}` : '元に戻せる操作はありません';
+  $('#undoN').textContent = undoStack.length || '';
+}
+function withUndo(msg, fn) {
+  pushUndo(msg); fn(); save();
+  toast(msg, '元に戻す', undo);
+}
+
+/* ============ 登録・編集ダイアログ ============ */
+const dlg = $('#itemDlg');
+let edit = null; // {mode:'add'|'edit', iid, sid, cid, newCat}
+function lastCat(sid) { return ui.lastCat?.[sid]; }
+function fillSiteSelect(sel, val) { sel.innerHTML = data.sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join(''); if (val) sel.value = val; }
+function renderCatPick() {
+  const s = findSite($('#fSite').value);
+  if (!s) { $('#fCats').innerHTML = ''; return; }
+  if (!s.cats.some(c => c.id === edit.cid) && edit.cid !== '__new') edit.cid = (s.cats.find(c => c.id === lastCat(s.id)) || s.cats[0])?.id || '__new';
+  $('#fCats').innerHTML = s.cats.map(c => `<button type="button" data-cid="${c.id}" class="${c.id === edit.cid ? 'on' : ''}">${esc(c.name)}</button>`).join('')
+    + (edit.cid === '__new' ? `<input id="fNewCat" placeholder="新しいカテゴリ名" value="${esc(edit.newCat || '')}">` : '<button type="button" data-cid="__new">＋ 新しいカテゴリ</button>');
+}
+function refreshItemDlg() {
+  const s = findSite($('#fSite').value), pid = $('#fId').value.trim().replace(/^@/, '');
+  $('#fName').placeholder = pid ? '空欄なら「' + pid + '」' : '空欄なら ID';
+  $('#noAvRow').hidden = !s?.avatar;
+  const url = s && pid ? urlOf(s, pid) : '';
+  $('#fPrev').textContent = url || '—'; url ? $('#fPrev').href = url : $('#fPrev').removeAttribute('href');
+  const d = s && findDup(s.id, pid, edit.iid);
+  $('#dupMsg').textContent = d ? `⚠ すでに「${d.c.name}」に「${dispName(d.it)}」として登録されています` : '';
+}
+function onUrlInput() {
+  const v = $('#fUrl').value, m = $('#parseMsg');
+  if (!v.trim()) { m.className = 'hint'; m.textContent = ''; return; }
+  const r = parseInput(v);
+  if (!r) return;
+  if (r.site) { $('#fSite').value = r.site.id; $('#fId').value = r.pid; m.className = 'hint ok'; m.textContent = `✓ ${r.site.name} ／ ID：${r.pid}`; renderCatPick(); }
+  else if (r.nomatch) { m.className = 'hint ng'; m.textContent = 'どのサイトのURL形式にも合いません。サイトとIDを指定するか、左の「サイトを追加」で形式を登録してください。'; }
+  else { $('#fId').value = r.pid; m.className = 'hint'; m.textContent = 'ID として登録します。サイトを選んでください。'; }
+  refreshItemDlg();
+}
+function openAdd({ text = '', sid, cid, name = '', icon = '' } = {}) {
+  if (!data.sites.length) { toast('先にサイトを追加してください'); return; }
+  edit = { mode: 'add', iid: null, cid: cid || null, icon: /^https:\/\/\S+$/i.test(icon) ? icon : '' };
+  $('#fIconRow').hidden = !edit.icon; if (edit.icon) $('#fIconImg').src = edit.icon; else $('#fIconImg').removeAttribute('src');
+  $('#iTitle').textContent = '登録'; $('#fOk').textContent = '登録';
+  $('#urlRow').hidden = false; $('#fDel').hidden = true; $('#fAv').hidden = true; $('#fInfo').textContent = '';
+  const vs = sid || (findSite(ui.view) ? ui.view : data.sites[0].id);
+  fillSiteSelect($('#fSite'), vs);
+  $('#fUrl').value = text; $('#fId').value = ''; $('#fName').value = name; $('#fMemo').value = ''; $('#fNoAv').checked = false; $('#fClosed').checked = false; edit.noAvPrev = false; syncClosed();
+  $('#parseMsg').textContent = ''; $('#parseMsg').className = 'hint';
+  renderCatPick(); onUrlInput(); refreshItemDlg();
+  dlg.showModal();
+  (text ? $('#fName') : $('#fUrl')).focus();
+}
+function openEdit(iid) {
+  const f = findItem(iid); if (!f) return;
+  edit = { mode: 'edit', iid, cid: f.c.id }; $('#fIconRow').hidden = true;
+  $('#iTitle').textContent = '編集'; $('#fOk').textContent = '保存';
+  $('#urlRow').hidden = true; $('#parseMsg').textContent = ''; $('#fDel').hidden = false; $('#fAv').hidden = !f.s.avatar;
+  fillSiteSelect($('#fSite'), f.s.id);
+  $('#fId').value = f.it.pid; $('#fName').value = f.it.name; $('#fMemo').value = f.it.memo; $('#fNoAv').checked = !!f.it.noAv; $('#fClosed').checked = !!f.it.closed; edit.noAvPrev = !!f.it.noAv; syncClosed();
+  const avSt = !f.s.avatar ? '' : f.it.av ? '　／　アイコン：取得済み' : f.it.noAv ? '　／　アイコン：取得しない'
+    : (f.it.avFails || 0) >= AV_MAX_FAILS ? `　／　アイコン：${AV_MAX_FAILS}回取れなかったので停止中`
+    : f.it.avFails ? `　／　アイコン：${f.it.avFails}回取れず、あとで再挑戦` : '';
+  $('#fInfo').textContent = `登録：${new Date(f.it.added).toLocaleDateString()}　／　最後に開いた：${f.it.opened ? new Date(f.it.opened).toLocaleString() : 'まだ'}${avSt}`;
+  renderCatPick(); refreshItemDlg();
+  dlg.showModal(); $('#fName').focus();
+}
+// 閉鎖済みのあいだは「アイコンを取得しない」をチェック済みで固定。外すと元の状態に戻す
+function syncClosed() {
+  const c = $('#fClosed').checked, n = $('#fNoAv');
+  n.disabled = c; n.checked = c || edit.noAvPrev;
+  $('#noAvRow').classList.toggle('off', c);
+  $('#noAvRow').title = c ? '閉鎖済みのチャンネルはアイコンを取得しません' : '';
+}
+const noAvVal = () => $('#fClosed').checked ? edit.noAvPrev : $('#fNoAv').checked; // 閉鎖済みで固定中は元の設定を保存
+$('#fClosed').addEventListener('change', syncClosed);
+$('#fNoAv').addEventListener('change', e => { edit.noAvPrev = e.target.checked; });
+$('#fUrl').addEventListener('input', onUrlInput);
+$('#fId').addEventListener('input', refreshItemDlg);
+$('#fSite').addEventListener('change', () => { edit.cid = null; renderCatPick(); refreshItemDlg(); });
+$('#fCats').addEventListener('click', e => {
+  const b = e.target.closest('button[data-cid]'); if (!b) return;
+  edit.cid = b.dataset.cid; renderCatPick();
+  if (edit.cid === '__new') $('#fNewCat').focus();
+});
+$('#fCats').addEventListener('input', e => { if (e.target.id === 'fNewCat') edit.newCat = e.target.value; });
+$('#itemForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const s = findSite($('#fSite').value), pid = $('#fId').value.trim().replace(/^@/, '');
+  if (!s) return;
+  if (!pid) { $('#fId').focus(); toast('ID を入力してください'); return; }
+  if (edit.cid === '__new' && !($('#fNewCat')?.value || '').trim()) { $('#fNewCat').focus(); return; }
+  const oldName = edit.mode === 'edit' ? dispName(findItem(edit.iid).it) : '';
+  pushUndo(edit.mode === 'add' ? `「${$('#fName').value.trim() || pid}」の登録` : `「${oldName}」の編集`);
+  let cat;
+  if (edit.cid === '__new') {
+    const nm = $('#fNewCat').value.trim();
+    cat = s.cats.find(c => c.name === nm) || (s.cats.push({ id: uid(), name: nm, items: [] }), s.cats[s.cats.length - 1]);
+  } else cat = s.cats.find(c => c.id === edit.cid);
+  if (!cat) { undoStack.pop(); persistUndo(); renderUndo(); toast('カテゴリを選んでください'); return; }
+  const dup = findDup(s.id, pid, edit.iid);
+  if (dup && !confirm(`「${dispName(dup.it)}」はすでに「${dup.c.name}」に登録されています。それでも登録しますか？`)) {
+    undoStack.pop(); persistUndo(); renderUndo();
+    if (!cat.items.length && edit.cid === '__new' && cat === s.cats[s.cats.length - 1] && !document.querySelector(`.cat[data-cid="${cat.id}"]`)) s.cats.pop(); // 作りかけのカテゴリを消す
+    return;
+  }
+  const name = $('#fName').value.trim(), memo = $('#fMemo').value.trim();
+  let target;
+  if (edit.mode === 'add') {
+    target = { id: uid(), pid, name, memo, added: Date.now(), opened: 0 };
+    cat.items.push(target);
+    toast(`「${dispName(target)}」を ${s.name} › ${cat.name} に登録しました`, '元に戻す', undo);
+  } else {
+    const f = findItem(edit.iid); target = f.it;
+    if (target.pid !== pid || f.s.id !== s.id) resetAv(target);
+    Object.assign(target, { pid, name, memo });
+    if (target.noAv && !noAvVal()) resetAv(target); // 取得しない→取得する に戻したら最初から
+    if (f.c !== cat) { f.c.items.splice(f.i, 1); cat.items.push(target); }
+  }
+  if (noAvVal() && s.avatar) { target.noAv = true; delete target.av; } else delete target.noAv;
+  if ($('#fClosed').checked) target.closed = true;
+  else if (target.closed) { delete target.closed; if (!target.av) { delete target.avMiss; delete target.avFails; } } // 閉鎖を外したらアイコン取得をやり直す
+  ui.lastCat = Object.assign(ui.lastCat || {}, { [s.id]: cat.id }); saveUi();
+  const useIcon = edit.mode === 'add' && edit.icon && !target.noAv && !target.closed;
+  if (useIcon) iconLoading.add(target.id); // unavatar より先にページの画像を使う
+  dlg.close(); save(); flash(target.id);
+  if (useIcon) iconFromUrl(target.id, edit.icon);
+});
+$('#fDel').addEventListener('click', () => {
+  const f = findItem(edit.iid); if (!f) return; dlg.close();
+  withUndo(`「${dispName(f.it)}」を削除しました`, () => f.c.items.splice(f.i, 1));
+});
+$('#fAv').addEventListener('click', () => {
+  const f = findItem(edit.iid); if (!f) return; resetAv(f.it); delete f.it.noAv; dlg.close(); save(); toast('アイコンを取り直します');
+});
+function flash(iid) {
+  requestAnimationFrame(() => { const el = document.querySelector(`.chip[data-iid="${iid}"]`); if (!el) return; el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1700); });
+}
+
+/* ============ サイトダイアログ ============ */
+const sdlg = $('#siteDlg'); let sEdit = null;
+$('#sAv').innerHTML = AV_PROVIDERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+function openSite(sid) {
+  sEdit = sid || null; const s = sid && findSite(sid);
+  $('#sTitle').textContent = s ? 'サイトを編集' : 'サイトを追加';
+  $('#sName').value = s?.name || ''; $('#sTpl').value = s?.template || ''; $('#sAlias').value = s?.aliases || ''; $('#sAv').value = s?.avatar || '';
+  $('#sDel').hidden = !s; checkTpl(); sdlg.showModal(); $('#sName').focus();
+}
+function checkTpl() {
+  const t = $('#sTpl').value.trim(), m = $('#sMsg'), n = t.split('{ID}').length - 1;
+  if (!t) { m.className = 'hint'; m.textContent = '例：https://www.instagram.com/{ID}/'; return false; }
+  if (n !== 1) { m.className = 'hint ng'; m.textContent = '{ID} を1つだけ入れてください'; return false; }
+  if (!/^https?:\/\//i.test(t)) { m.className = 'hint ng'; m.textContent = 'https:// から始めてください'; return false; }
+  m.className = 'hint ok'; m.textContent = '例：' + t.replace('{ID}', 'sample_id'); return true;
+}
+$('#sTpl').addEventListener('input', checkTpl);
+$('#siteForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('#sName').value.trim(); if (!name) { $('#sName').focus(); return; }
+  if (!checkTpl()) { $('#sTpl').focus(); return; }
+  const v = { name, template: $('#sTpl').value.trim(), aliases: $('#sAlias').value.trim(), avatar: $('#sAv').value };
+  pushUndo(sEdit ? `サイト「${findSite(sEdit).name}」の編集` : `サイト「${name}」の追加`);
+  if (sEdit) {
+    const s = findSite(sEdit);
+    if (s.avatar !== v.avatar) for (const c of s.cats) for (const it of c.items) resetAv(it);
+    Object.assign(s, v);
+  } else { const s = { id: uid(), ...v, cats: [{ id: uid(), name: '未分類', items: [] }] }; data.sites.push(s); ui.view = s.id; saveUi(); }
+  sdlg.close(); save();
+});
+$('#sDel').addEventListener('click', () => {
+  const s = findSite(sEdit); const n = s.cats.reduce((m, c) => m + c.items.length, 0);
+  if (!confirm(`サイト「${s.name}」と、その中の ${s.cats.length} カテゴリ・${n} 件を削除しますか？`)) return;
+  sdlg.close(); withUndo(`「${s.name}」を削除しました`, () => data.sites.splice(data.sites.indexOf(s), 1));
+});
+
+/* ============ 設定ダイアログ ============ */
+const setDlg = $('#setDlg');
+function openSettings() {
+  $('#fileInfo').textContent = !hasFS ? 'このブラウザはファイルへの自動保存に対応していません（Chrome / Edge で開いてください）。書き出し・読み込みは使えます。'
+    : fh ? `「${fh.name}」 — ${fState === 'ok' ? '接続中（自動保存）' : fState === 'need' ? '再接続が必要' : '書き込みエラー'}` : '未設定（ブラウザ内にだけ保存中）';
+  for (const id of ['#bNew', '#bOpen']) $(id).hidden = !hasFS;
+  $('#bDisc').hidden = !fh;
+  $('#stDays').value = data.settings.staleDays;
+  let has = 0, wait = 0, gave = 0;
+  for (const s of data.sites) for (const c of s.cats) for (const it of c.items) {
+    if (it.av) has++; else if (!s.avatar || it.noAv || it.closed) continue;
+    else if ((it.avFails || 0) >= AV_MAX_FAILS) gave++; else wait++;
+  }
+  const t = d => new Date(d).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  $('#avInfo').textContent = `取得済み ${has} 件／未取得 ${wait} 件／取れなかった ${gave} 件`
+    + (avPause > Date.now() ? `。今日の上限に達したため ${t(avPause)} ごろまで停止中` : '');
+  $('#bAvRetry').disabled = !gave;
+  setDlg.showModal();
+}
+$('#bNew').onclick = () => { setDlg.close(); connectNew(); };
+$('#bOpen').onclick = () => { setDlg.close(); connectOpen(); };
+$('#bDisc').onclick = () => { setDlg.close(); disconnect(); toast('接続を解除しました（データはブラウザ内に残っています）'); };
+$('#bExp').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+  const d = new Date(); a.download = `sns-shelf-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$('#bImp').onclick = () => $('#impFile').click();
+$('#impFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const d = normalize(JSON.parse(await f.text()));
+    const n = d.sites.reduce((a, s) => a + s.cats.reduce((m, c) => m + c.items.length, 0), 0);
+    if (!confirm(`「${f.name}」（${d.sites.length} サイト・${n} 件）で今のデータを置き換えますか？`)) return;
+    setDlg.close(); withUndo('読み込みました', () => { data = d; });
+  } catch (err) { toast('読み込めませんでした：' + err.message); }
+};
+$('#bAvRetry').onclick = () => {
+  for (const s of data.sites) for (const c of s.cats) for (const it of c.items) if (!it.av && (it.avFails || 0) >= AV_MAX_FAILS) { delete it.avFails; delete it.avMiss; }
+  setDlg.close(); save(); toast('取れなかったアイコンを取り直します');
+};
+$('#stDays').onchange = e => { const v = Math.max(1, Math.min(3650, +e.target.value || 30)); data.settings.staleDays = v; save(); };
+
+/* ============ メニュー ============ */
+let menuEl = null;
+function closeMenu() { menuEl?.remove(); menuEl = null; }
+function showMenu(anchor, items) {
+  closeMenu(); menuEl = document.createElement('div'); menuEl.className = 'menu';
+  items.forEach(([label, fn, cls]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (cls) b.className = cls; b.onclick = () => { closeMenu(); fn(); }; menuEl.append(b); });
+  document.body.append(menuEl);
+  const r = anchor.getBoundingClientRect(), mw = menuEl.offsetWidth, mh = menuEl.offsetHeight;
+  menuEl.style.left = Math.max(8, Math.min(innerWidth - mw - 8, r.right - mw)) + 'px';
+  menuEl.style.top = (r.bottom + mh + 8 > innerHeight ? r.top - mh - 4 : r.bottom + 4) + 'px';
+}
+document.addEventListener('pointerdown', e => { if (menuEl && !menuEl.contains(e.target)) closeMenu(); });
+
+function renameCat(catEl) {
+  const s = findSite(catEl.dataset.sid), c = s?.cats.find(x => x.id === catEl.dataset.cid); if (!c) return;
+  const span = catEl.querySelector('.cname'); const inp = document.createElement('input'); inp.value = c.name; span.replaceWith(inp); inp.focus(); inp.select();
+  let done = false;
+  const fin = ok => { if (done) return; done = true; const v = inp.value.trim(); if (ok && v && v !== c.name) { pushUndo(`カテゴリ名の変更（${c.name} → ${v}）`); c.name = v; save(); } else render(); };
+  inp.onkeydown = e => { if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); };
+  inp.onblur = () => fin(true);
+}
+function addCat(sid) {
+  const s = findSite(sid); let n = 1, name = '新しいカテゴリ';
+  while (s.cats.some(c => c.name === name)) name = '新しいカテゴリ ' + (++n);
+  pushUndo('カテゴリの追加'); const c = { id: uid(), name, items: [] }; s.cats.push(c); save();
+  const el = document.querySelector(`.cat[data-cid="${c.id}"]`); if (el) { el.scrollIntoView({ block: 'nearest' }); renameCat(el); }
+}
+function openAll(catEl) {
+  const s = findSite(catEl.dataset.sid);
+  const ids = [...catEl.querySelectorAll('.chip:not(.closed)')].map(x => x.dataset.iid);
+  if (ids.length > 10 && !confirm(`${ids.length} 個のタブを開きます。よろしいですか？`)) return;
+  let ok = 0;
+  for (const id of ids) { const f = findItem(id); if (!f) continue; const w = window.open(urlOf(s, f.it.pid), '_blank'); if (w) { ok++; f.it.opened = Date.now(); } }
+  if (ok < ids.length) toast(`${ids.length - ok} 個がポップアップとしてブロックされました。アドレスバー右端のアイコンから「常に許可」にしてください`);
+  if (ok) save();
+}
+
+/* ============ クリック操作 ============ */
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-close]')) { e.target.closest('dialog').close(); return; }
+  const nav = e.target.closest('.side [data-view]');
+  if (nav) { ui.view = nav.dataset.view; saveUi(); render(); scrollTo({ top: 0 }); return; }
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  const catEl = a.closest('.cat'), siteEl = a.closest('.site');
+  switch (a.dataset.act) {
+    case 'edit': openEdit(a.closest('.chip').dataset.iid); break;
+    case 'add': openAdd({ sid: catEl.dataset.sid, cid: catEl.dataset.cid }); break;
+    case 'addcat': addCat(siteEl.dataset.sid); break;
+    case 'editsite': openSite(siteEl.dataset.sid); break;
+    case 'addsite': openSite(); break;
+    case 'openall': openAll(catEl); break;
+    case 'fnew': connectNew(); break;
+    case 'fopen': connectOpen(); break;
+    case 'frecon': reconnect(); break;
+    case 'catmenu': {
+      const s = findSite(catEl.dataset.sid), c = s.cats.find(x => x.id === catEl.dataset.cid);
+      showMenu(a, [['名前を変更', () => renameCat(catEl)], ['このカテゴリに登録', () => openAdd({ sid: s.id, cid: c.id })],
+        ['カテゴリを削除', () => {
+          if (c.items.length && !confirm(`「${c.name}」と中の ${c.items.length} 件を削除しますか？`)) return;
+          withUndo(`カテゴリ「${c.name}」を削除しました`, () => s.cats.splice(s.cats.indexOf(c), 1));
+        }, 'danger']]);
+      break;
+    }
+  }
+});
+$('#main').addEventListener('click', e => { const n = e.target.closest('.cname'); if (n) renameCat(n.closest('.cat')); });
+function markOpened(e) {
+  const a = e.target.closest('.chip a'); if (!a) return;
+  if (e.type === 'auxclick' && e.button !== 1) return;
+  const f = findItem(a.parentElement.dataset.iid); if (!f) return;
+  f.it.opened = Date.now(); a.parentElement.classList.remove('stale'); save(false);
+  setTimeout(renderSide, 0);
+}
+$('#main').addEventListener('click', markOpened);
+$('#main').addEventListener('auxclick', markOpened);
+$('#state').onclick = () => fState === 'need' ? reconnect() : openSettings();
+$('#setBtn').onclick = openSettings;
+$('#undoBtn').onclick = undo;
+renderUndo();
+$('#sort').value = ui.sort;
+$('#showClosed').checked = ui.showClosed;
+$('#showClosed').onchange = e => { ui.showClosed = e.target.checked; saveUi(); renderMain(); };
+$('#sort').onchange = e => { ui.sort = e.target.value; saveUi(); render(); };
+$('#q').addEventListener('input', renderMain);
+$('#addForm').addEventListener('submit', e => { e.preventDefault(); const v = $('#addInput').value.trim(); $('#addInput').value = ''; openAdd(splitPaste(v)); });
+
+/* 貼り付け・ドロップ：1行目 URL、2行目 表示名（任意） */
+function splitPaste(t) {
+  const lines = String(t).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  return { text: lines[0] || '', name: lines[1] || '', icon: lines[2] || '' }; // 3行目＝アイコン画像のURL（ブックマークレット）
+}
+const typing = el => !!el?.closest?.('input,textarea,select,[contenteditable]');
+document.addEventListener('paste', e => {
+  if (typing(e.target) || document.querySelector('dialog[open]')) return;
+  const t = e.clipboardData.getData('text'); if (!t.trim()) return;
+  e.preventDefault(); openAdd(splitPaste(t));
+});
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing(e.target) && !document.querySelector('dialog[open]')) { e.preventDefault(); undo(); return; }
+  if (e.key === '/' && !typing(e.target) && !document.querySelector('dialog[open]')) { e.preventDefault(); $('#q').focus(); }
+  if (e.key === 'Escape' && e.target === $('#q') && $('#q').value) { $('#q').value = ''; renderMain(); }
+});
+
+/* ============ ドラッグ＆ドロップ ============ */
+let drag = null;
+const clearMarks = () => document.querySelectorAll('.mark-l,.mark-r,.mark-t,.mark-b,.mark-end').forEach(x => x.classList.remove('mark-l', 'mark-r', 'mark-t', 'mark-b', 'mark-end'));
+$('#main').addEventListener('dragstart', e => {
+  const chip = e.target.closest?.('.chip[draggable]');
+  if (chip) { const cat = chip.closest('.cat'); drag = { type: 'item', sid: cat.dataset.sid, iid: chip.dataset.iid }; chip.classList.add('dragging'); }
+  else { const h = e.target.closest?.('.cathead[draggable]'); if (!h) return; const cat = h.closest('.cat'); drag = { type: 'cat', sid: cat.dataset.sid, cid: cat.dataset.cid }; }
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('application/x-shelf', '1');
+});
+$('#main').addEventListener('dragend', () => { drag = null; clearMarks(); document.querySelectorAll('.dragging').forEach(x => x.classList.remove('dragging')); });
+function dropTarget(e) {
+  const cat = e.target.closest?.('.cat'); if (!cat || cat.dataset.sid !== drag.sid) return null;
+  if (drag.type === 'cat') { const r = cat.getBoundingClientRect(); return { cat, before: e.clientY < r.top + r.height / 2 }; }
+  const chip = e.target.closest('.chip');
+  if (chip && chip.dataset.iid !== drag.iid) { const r = chip.getBoundingClientRect(); return { cat, chip, before: e.clientX < r.left + r.width / 2 }; }
+  if (chip) return { cat, self: true };
+  return { cat };
+}
+$('#main').addEventListener('dragover', e => {
+  if (!drag) return;
+  const t = dropTarget(e); clearMarks(); if (!t) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  if (drag.type === 'cat') { if (t.cat.dataset.cid !== drag.cid) t.cat.classList.add(t.before ? 'mark-t' : 'mark-b'); }
+  else if (t.chip) t.chip.classList.add(t.before ? 'mark-l' : 'mark-r');
+  else if (!t.self) t.cat.querySelector('.chips').classList.add('mark-end');
+});
+$('#main').addEventListener('drop', e => {
+  if (!drag) return; const t = dropTarget(e); clearMarks(); if (!t) return; e.preventDefault(); e.stopPropagation();
+  const s = findSite(drag.sid);
+  if (t.self || (drag.type === 'cat' && t.cat.dataset.cid === drag.cid)) return;
+  pushUndo(drag.type === 'cat' ? 'カテゴリの並べ替え' : `「${dispName(findItem(drag.iid).it)}」の移動`);
+  if (drag.type === 'cat') {
+    const from = s.cats.findIndex(c => c.id === drag.cid); const [c] = s.cats.splice(from, 1);
+    let to = s.cats.findIndex(x => x.id === t.cat.dataset.cid); if (!t.before) to++;
+    s.cats.splice(to, 0, c);
+  } else {
+    if (t.self) return;
+    const f = findItem(drag.iid); f.c.items.splice(f.i, 1);
+    const dest = s.cats.find(c => c.id === t.cat.dataset.cid);
+    if (t.chip) { let to = dest.items.findIndex(x => x.id === t.chip.dataset.iid); if (!t.before) to++; dest.items.splice(to, 0, f.it); }
+    else dest.items.push(f.it);
+  }
+  drag = null; save();
+});
+/* 外部からのリンクのドロップ */
+let dragDepth = 0;
+const extDrag = e => !drag && [...e.dataTransfer.types].some(t => t === 'text/uri-list' || t === 'text/plain');
+document.addEventListener('dragenter', e => { if (extDrag(e)) { dragDepth++; $('#dropover').classList.add('show'); } });
+document.addEventListener('dragleave', e => { if (extDrag(e) && --dragDepth <= 0) { dragDepth = 0; $('#dropover').classList.remove('show'); } });
+document.addEventListener('dragover', e => { if (extDrag(e)) e.preventDefault(); });
+document.addEventListener('drop', e => {
+  dragDepth = 0; $('#dropover').classList.remove('show');
+  if (drag || !e.dataTransfer) return;
+  const u = (e.dataTransfer.getData('text/uri-list') || '').split(/\r?\n/).find(x => x && !x.startsWith('#')) || e.dataTransfer.getData('text/plain');
+  if (!u) return; e.preventDefault(); openAdd(splitPaste(u));
+});
+
+/* ============ 起動 ============ */
+render();
+initFile().then(() => {
+  const p = new URLSearchParams(location.search);
+  if (p.get('add')) openAdd({ text: p.get('add'), name: p.get('name') || '' });
+});
+</script>
+</body>
+</html>
