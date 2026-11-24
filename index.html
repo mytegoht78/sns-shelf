@@ -328,6 +328,7 @@ function seed() {
 function normalize(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.sites)) throw new Error('SNSシェルフのデータではありません');
   d.app = 'sns-shelf'; d.version = 1; d.updatedAt = +d.updatedAt || 0;
+  d.rev = typeof d.rev === 'string' ? d.rev : ''; d.hist = Array.isArray(d.hist) ? d.hist.filter(x => typeof x === 'string') : [];
   d.settings = Object.assign({ staleDays: 30 }, d.settings || {});
   for (const s of d.sites) {
     s.id ||= uid(); s.name = String(s.name || 'サイト'); s.template = String(s.template || '');
@@ -347,7 +348,7 @@ function normalize(d) {
 }
 
 let data;
-try { data = normalize(JSON.parse(localStorage.getItem(LS_DATA))); } catch { data = seed(); }
+try { data = normalize(JSON.parse(localStorage.getItem(LS_DATA))); } catch { data = normalize(seed()); }
 let ui = { view: 'all', sort: 'manual', showClosed: true };
 try { Object.assign(ui, JSON.parse(localStorage.getItem(LS_UI)) || {}); } catch {}
 const saveUi = () => { try { localStorage.setItem(LS_UI, JSON.stringify(ui)); } catch {} };
@@ -374,66 +375,332 @@ function idb() {
 async function idbGet(k) { const db = await idb(); return new Promise(res => { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); }); }
 async function idbSet(k, v) { const db = await idb(); return new Promise(res => { const t = db.transaction('kv', 'readwrite'); v === undefined ? t.objectStore('kv').delete(k) : t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = res; }); }
 
+/* ============ 端末どうしの変更を合わせる ============
+   同じJSONを複数の端末で使っても、片方の変更が消えないようにする。
+   ・ファイルには版の名前 rev と、そこまでの版の一覧 hist を入れておく
+   ・版ごとの控え（アイコン画像を除く）を IndexedDB に残し、「最後にそろった時点」を基準に
+     この端末の変更と、ほかの端末の変更を両方取り込む（merge3）
+   ・基準が見つからないときは、消さずに両方を足し合わせる */
+function hash(str) { // cyrb53
+  let a = 0xdeadbeef, b = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); }
+  a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909);
+  b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909);
+  return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36);
+}
+const bodyHash = d => hash(JSON.stringify([d.settings, d.sites]));
+const uniq = a => [...new Set(a.filter(Boolean))];
+const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([p], [q]) => p < q ? -1 : 1)) : x);
+const sameBody = (x, y) => canon([x.settings, x.sites]) === canon([y.settings, y.sites]);
+const eachItem = (d, fn) => { for (const s of d.sites) for (const c of s.cats) for (const it of c.items) fn(it, c, s); };
+const countItems = d => { let n = 0; eachItem(d, () => n++); return n; };
+
+let bases = []; // [{rev, snap, own}] 新しい順
+const baseOf = rev => { const b = bases.find(x => x.rev === rev); return b ? JSON.parse(b.snap) : null; };
+function rememberBase(rev, d, own) {
+  const snap = JSON.stringify({ settings: d.settings, sites: d.sites }, (k, v) => k === 'av' ? undefined : v);
+  bases = [{ rev, snap, own }, ...bases.filter(x => x.rev !== rev)];
+  let o = 0, t = 0; bases = bases.filter(x => x.own ? ++o <= 30 : ++t <= 15);
+  idbSet('bases', bases).catch(() => {});
+}
+
+const eqv = (x, y) => canon(x) === canon(y);
+function mergeFields(b, m, t, pref, skip) {
+  const o = {};
+  for (const k of new Set([...Object.keys(t), ...Object.keys(m)])) {
+    if (skip(k)) continue;
+    let v;
+    if (k === 'opened') v = Math.max(m[k] || 0, t[k] || 0);
+    else if (eqv(m[k], t[k])) v = t[k];
+    else if (b && eqv(m[k], b[k])) v = t[k];
+    else if (b && eqv(t[k], b[k])) v = m[k];
+    else v = pref === 'm' ? m[k] : t[k];
+    if (v !== undefined) o[k] = v;
+  }
+  return o;
+}
+const isAvKey = k => k === 'av' || k === 'avMiss' || k === 'avFails';
+function mergeItem(b, m, t, pref) {
+  const o = mergeFields(b, m, t, pref, isAvKey);
+  // アイコンは、IDが合っている側から（両方にあればファイル側にそろえる）
+  const src = [t, m].filter(x => x.pid === o.pid), withAv = src.find(x => x.av);
+  if (o.noAv) return o;
+  if (withAv) o.av = withAv.av;
+  else if (src[0]) { if (src[0].avMiss) o.avMiss = src[0].avMiss; if (src[0].avFails) o.avFails = src[0].avFails; }
+  return o;
+}
+function indexOf3(d) {
+  const S = new Map(), C = new Map(), I = new Map();
+  if (d) for (const s of d.sites) { S.set(s.id, { o: s, p: '' }); for (const c of s.cats) { C.set(c.id, { o: c, p: s.id }); for (const it of c.items) I.set(it.id, { o: it, p: c.id }); } }
+  return { S, C, I };
+}
+/* B：基準（なければ null）、M：この端末、T：ほかの端末（ファイル）。pref：両方で同じ所を変えたときに優先する側 */
+function merge3(B, M, T, pref = 'm') {
+  const ib = indexOf3(B), im = indexOf3(M), it3 = indexOf3(T);
+  const trivial = k => k === 'opened' || isAvKey(k);
+  const kids = k => k === 'cats' || k === 'items';
+  const pickParent = (b, m, t) => m.p === t.p ? t.p : b && b.p === m.p ? t.p : b && b.p === t.p ? m.p : (pref === 'm' ? m.p : t.p);
+  function mergeKind(K) {
+    const out = new Map();
+    for (const id of new Set([...it3[K].keys(), ...im[K].keys()])) {
+      const b = ib[K].get(id), m = im[K].get(id), t = it3[K].get(id);
+      if (m && t) out.set(id, { o: K === 'I' ? mergeItem(b?.o, m.o, t.o, pref) : mergeFields(b?.o, m.o, t.o, pref, kids), p: pickParent(b, m, t) });
+      else {
+        const x = m || t;
+        // 片方で消されたもの：残っている側で中身を変えていなければ消す
+        if (b && b.p === x.p) {
+          const keys = new Set([...Object.keys(b.o), ...Object.keys(x.o)]);
+          if (![...keys].some(k => !kids(k) && !trivial(k) && !eqv(b.o[k], x.o[k]))) continue;
+        }
+        const o = {}; for (const k of Object.keys(x.o)) if (!kids(k)) o[k] = x.o[k];
+        out.set(id, { o, p: x.p, only: b ? '' : m ? 'm' : 't' });
+      }
+    }
+    return out;
+  }
+  const S = mergeKind('S'), C = mergeKind('C'), I = mergeKind('I');
+  const siteOfCat = cid => (C.get(cid) || im.C.get(cid) || it3.C.get(cid))?.p;
+  // 両方の端末で別々に登録した同じアカウントは1つにまとめる
+  const newT = new Map();
+  for (const x of I.values()) if (x.only === 't') newT.set(siteOfCat(x.p) + '\n' + x.o.pid.toLowerCase(), x);
+  for (const [id, x] of [...I]) {
+    if (x.only !== 'm') continue;
+    const y = newT.get(siteOfCat(x.p) + '\n' + x.o.pid.toLowerCase()); if (!y) continue;
+    y.o.name ||= x.o.name; y.o.opened = Math.max(y.o.opened || 0, x.o.opened || 0); y.o.av ||= x.o.av; if (!y.o.av) delete y.o.av;
+    if (x.o.memo && x.o.memo !== y.o.memo) y.o.memo = y.o.memo ? y.o.memo + ' ／ ' + x.o.memo : x.o.memo;
+    I.delete(id);
+  }
+  // 中身が残っているカテゴリ・サイトは消さない
+  for (const x of I.values()) if (!C.has(x.p)) { const c = im.C.get(x.p) || it3.C.get(x.p); const { items, ...o } = c.o; C.set(x.p, { o, p: c.p }); }
+  for (const x of C.values()) if (!S.has(x.p)) { const q = im.S.get(x.p) || it3.S.get(x.p); const { cats, ...o } = q.o; S.set(x.p, { o, p: '' }); }
+  // 並び順：この端末で並べ替えていればこの端末の順、そうでなければファイルの順
+  function order(members, bl, ml, tl) {
+    const both = new Set(bl.filter(id => ml.includes(id)));
+    const moved = bl.filter(id => both.has(id)).join() !== ml.filter(id => both.has(id)).join();
+    const [p, q] = moved ? [ml, tl] : [tl, ml];
+    const out = p.filter(id => members.has(id));
+    q.forEach((id, i) => {
+      if (!members.has(id) || out.includes(id)) return;
+      let at = -1; for (let k = i - 1; k >= 0 && at < 0; k--) at = out.indexOf(q[k]);
+      out.splice(at < 0 && i > 0 ? out.length : at + 1, 0, id);
+    });
+    for (const id of members) if (!out.includes(id)) out.push(id);
+    return out;
+  }
+  const ids = l => (l || []).map(x => x.id);
+  const group = K => { const g = new Map(); for (const [id, x] of K) { if (!g.has(x.p)) g.set(x.p, new Set()); g.get(x.p).add(id); } return g; };
+  const gc = group(C), gi = group(I), none = new Set();
+  const sites = order(new Set(S.keys()), ids(B?.sites), ids(M.sites), ids(T.sites)).map(sid => ({
+    ...S.get(sid).o,
+    cats: order(gc.get(sid) || none, ids(ib.S.get(sid)?.o.cats), ids(im.S.get(sid)?.o.cats), ids(it3.S.get(sid)?.o.cats)).map(cid => ({
+      ...C.get(cid).o,
+      items: order(gi.get(cid) || none, ids(ib.C.get(cid)?.o.items), ids(im.C.get(cid)?.o.items), ids(it3.C.get(cid)?.o.items)).map(id => I.get(id).o),
+    })),
+  }));
+  return normalize({ updatedAt: Math.max(M.updatedAt || 0, T.updatedAt || 0), avFix1: 1, settings: mergeFields(B?.settings, M.settings, T.settings, pref, () => false), sites });
+}
+/* 基準がないとき：同じサイト・カテゴリ・アカウントとみなせるものは、id をファイル側にそろえる */
+function alignIds(M, T) {
+  const d = JSON.parse(JSON.stringify(M));
+  const match = (ml, tl, same) => {
+    const used = new Set(ml.map(x => x.id)), taken = new Set();
+    for (const m of ml) if (tl.some(t => t.id === m.id)) taken.add(m.id);
+    for (const m of ml) {
+      if (taken.has(m.id)) continue;
+      const t = tl.find(x => !used.has(x.id) && !taken.has(x.id) && same(x, m));
+      if (t) { m.id = t.id; taken.add(t.id); }
+    }
+  };
+  match(d.sites, T.sites, (x, y) => x.template === y.template);
+  for (const s of d.sites) {
+    const ts = T.sites.find(x => x.id === s.id); if (!ts) continue;
+    match(s.cats, ts.cats, (x, y) => x.name === y.name);
+    match(s.cats.flatMap(c => c.items), ts.cats.flatMap(c => c.items), (x, y) => x.pid.toLowerCase() === y.pid.toLowerCase());
+  }
+  return d;
+}
+
 /* ============ 保存 ============ */
 const hasFS = 'showSaveFilePicker' in window;
-let fh = null, fState = hasFS ? 'none' : 'unsupported'; // none|need|ok|err|unsupported
+let fh = null, fState = hasFS ? 'none' : 'unsupported'; // none|need|ok|err|hold|unsupported
 let saving = false, saveTimer = 0, wq = Promise.resolve();
+let lastText = null, editN = 0, holdMsg = '';
 const FTYPES = [{ description: 'JSON', accept: { 'application/json': ['.json'] } }];
+if (!data.rev) data.rev = 'x-' + bodyHash(data); // 版の名前がない以前のデータ
 
 function persistLocal() { try { localStorage.setItem(LS_DATA, JSON.stringify(data)); } catch (e) { console.warn(e); } }
 function save(rerender = true) {
-  data.updatedAt = Date.now();
+  data.updatedAt = Date.now(); editN++;
   persistLocal();
   if (fState === 'ok') { saving = true; clearTimeout(saveTimer); saveTimer = setTimeout(writeFile, 400); }
   if (rerender) render(); else renderState();
 }
+// 入力・ドラッグの途中でデータを差し替えると操作が壊れるので、その間は待つ
+const busy = () => !!(document.querySelector('dialog[open]') || document.querySelector('#main input') || menuEl || drag);
+
+async function readShelf() {
+  const text = await (await fh.getFile()).text();
+  if (!text.trim()) return { kind: 'empty' };
+  try {
+    const raw = JSON.parse(text), h = Array.isArray(raw?.sites) ? bodyHash(raw) : '';
+    // rev と中身が合わないとき（以前の版のアプリや手作業で書き換えたとき）は、新しい版として扱う
+    const ok = typeof raw?.rev === 'string' && raw.rev.endsWith('-' + h);
+    const rev = ok ? raw.rev : 'x-' + h, d = normalize(raw);
+    const hist = uniq([...(ok ? [] : [d.rev]), ...d.hist]).filter(x => x !== rev);
+    return { kind: 'ok', text, d, rev, hist };
+  } catch (e) { return { kind: 'bad', msg: e.message }; }
+}
+/* この端末のデータから見た、ファイルの位置づけ */
+function relation(f) {
+  if (f.rev === data.rev) return { type: 'same' };
+  if (data.hist.includes(f.rev)) return { type: 'old' };
+  const theirs = new Set(f.hist);
+  const base = [data.rev, ...data.hist].find(r => theirs.has(r) && bases.some(x => x.rev === r));
+  if (base) return { type: 'merge', base: baseOf(base) };
+  if (theirs.has(data.rev) && data.rev === 'x-' + bodyHash(data)) return { type: 'merge', base: data };
+  return { type: 'unknown' };
+}
+function setBase(f, oldRev, oldHist) {
+  data.rev = f.rev;
+  data.hist = uniq([oldRev, ...f.hist.slice(0, 80), ...oldHist.slice(0, 80)]).filter(x => x !== f.rev);
+  rememberBase(f.rev, f.d, false);
+}
+function takeMerged(f, base) {
+  const old = data, mine = base ? old : alignIds(old, f.d);
+  const next = merge3(base, mine, f.d, old.updatedAt >= f.d.updatedAt ? 'm' : 't');
+  rebaseUndo(old, next);
+  data = next; setBase(f, old.rev, old.hist); persistLocal();
+  return !sameBody(old, next);
+}
+function takeFile(f) { // ファイルの内容に切り替える
+  const old = data;
+  if (countItems(old) && !sameBody(old, f.d)) pushUndo('ファイルの内容への切り替え');
+  data = f.d; setBase(f, old.rev, old.hist); persistLocal();
+}
+/* ファイルの変更を取り込む。戻り値：busy（あとで）／old（ファイルの方が古い）／ok */
+function absorb(f) {
+  const r = relation(f);
+  if (r.type === 'same' || r.type === 'old') return r.type === 'old' ? 'old' : 'ok';
+  if (busy()) return 'busy';
+  if (takeMerged(f, r.base || null)) { render(); toast('ほかの端末での変更を取り込みました'); }
+  return 'ok';
+}
+function hold(f) {
+  fState = 'hold'; saving = false;
+  holdMsg = f.kind === 'empty' ? '保存ファイルが空になっています。' : '保存ファイルの中身を読めません（' + f.msg + '）。';
+  renderState(); renderBanner();
+}
+async function putFile() {
+  const n = editN, oldRev = data.rev, oldHist = data.hist;
+  const rev = Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '-' + bodyHash(data);
+  data.rev = rev; data.hist = uniq([oldRev, ...oldHist]).slice(0, 160);
+  const text = JSON.stringify(data, null, 1);
+  rememberBase(rev, data, true);
+  try {
+    const w = await fh.createWritable();
+    await w.write(text); await w.close();
+  } catch (e) {
+    if (data.rev === rev) { data.rev = oldRev; data.hist = uniq([...oldHist, rev]); }
+    throw e;
+  }
+  lastText = text; persistLocal();
+  saving = editN !== n; renderState();
+}
+function failed(e) { console.error(e); saving = false; fState = 'err'; renderState(); renderBanner(); }
 function writeFile() {
   clearTimeout(saveTimer);
   if (!fh || fState !== 'ok') return wq;
   saving = true; renderState();
   wq = wq.then(async () => {
-    const w = await fh.createWritable();
-    await w.write(JSON.stringify(data, null, 1)); await w.close();
-    saving = false; renderState();
-  }).catch(e => { console.error(e); saving = false; fState = 'err'; renderState(); renderBanner(); });
+    if (!fh || fState !== 'ok') { saving = false; return; }
+    const f = await readShelf(); // 書く前に必ず今のファイルを確かめる
+    if (f.kind !== 'ok') { hold(f); return; }
+    if (f.text !== lastText) {
+      if (absorb(f) === 'busy') { saveTimer = setTimeout(writeFile, 1000); return; }
+      lastText = f.text;
+      if (data.rev === f.rev && sameBody(data, f.d)) { saving = false; renderState(); return; }
+    }
+    await putFile();
+  }).catch(failed);
   return wq;
 }
-async function loadFromFile() {
-  const txt = await (await fh.getFile()).text();
-  if (!txt.trim()) { await writeFile(); return; }
-  let d;
-  try { d = normalize(JSON.parse(txt)); } catch (e) { fState = 'err'; renderBanner(); renderState(); toast('JSONを読めませんでした：' + e.message); return; }
-  if (data.updatedAt > d.updatedAt && JSON.stringify(data.sites) !== JSON.stringify(d.sites)) {
-    if (confirm('ブラウザ内のデータの方がファイルより新しいです。\n\nOK：ブラウザ内のデータでファイルを上書き\nキャンセル：ファイルの内容を使う')) { await writeFile(); return; }
+/* アプリに戻ってきたときに、ほかの端末の変更がないか見る */
+let lastCheck = 0;
+function checkFile() {
+  if (!fh || fState !== 'ok' || Date.now() - lastCheck < 1500) return;
+  lastCheck = Date.now();
+  wq = wq.then(async () => {
+    if (!fh || fState !== 'ok') return;
+    const f = await readShelf();
+    if (f.kind !== 'ok' || f.text === lastText) return; // 空や読みかけのときは、次の機会に見る
+    const r = absorb(f);
+    if (r === 'busy') { lastCheck = 0; setTimeout(checkFile, 1500); return; }
+    lastText = f.text;
+    if (r === 'ok' && !sameBody(data, f.d)) { clearTimeout(saveTimer); saving = true; saveTimer = setTimeout(writeFile, 50); }
+  }).catch(e => console.warn(e));
+}
+async function loadFromFile(isNew = false) {
+  const f = await readShelf();
+  if (f.kind === 'empty' && isNew) { await putFile(); return; }
+  if (f.kind !== 'ok') { hold(f); return; }
+  if (busy()) { setTimeout(() => loadFromFile().catch(failed), 1000); return; }
+  lastText = f.text;
+  const r = relation(f);
+  if (sameBody(data, f.d)) { const old = data; data = f.d; setBase(f, old.rev, old.hist); persistLocal(); render(); return; }
+  if (r.type === 'old') {
+    if (confirm('ファイルの内容が、この端末の内容より古いようです。\n（OneDriveの同期がまだ終わっていないか、古い版に戻したときに起こります）\n\nOK：この端末の新しい内容をファイルに保存する\nキャンセル：ファイルの古い内容を使う')) await putFile();
+    else takeFile(f);
+  } else if (r.type === 'same') await putFile();
+  else if (r.type === 'merge') { if (takeMerged(f, r.base)) toast('ほかの端末での変更を取り込みました'); }
+  else {
+    const mine = countItems(data), both = mine ? countItems(merge3(null, alignIds(data, f.d), f.d)) : 0;
+    const only = Math.max(0, both - countItems(f.d));
+    if (mine && (only || data.updatedAt > f.d.updatedAt)
+      && confirm(`この端末の内容と、ファイルの内容が違います。${only ? `\nこの端末にだけあるもの：${only}件` : ''}\n\nOK：両方を合わせる（どちらの登録も残ります）\nキャンセル：ファイルの内容だけを使う`)) takeMerged(f, null);
+    else takeFile(f);
   }
-  data = d; persistLocal(); render();
+  if (fState === 'ok' && !sameBody(data, f.d) && r.type !== 'same' && r.type !== 'old') await putFile();
+  render();
+}
+async function attach(h, isNew) {
+  const prev = fh, prevState = fState;
+  await wq; fh = h; fState = 'ok'; lastText = null;
+  try { await loadFromFile(isNew); } catch (e) { fh = prev; fState = prevState; render(); throw e; }
+  await idbSet('file', h);
 }
 async function connectNew() {
   try {
     const h = await showSaveFilePicker({ suggestedName: 'sns-shelf.json', types: FTYPES });
-    fh = h; await idbSet('file', h); fState = 'ok'; await writeFile();
-    toast('保存先を「' + h.name + '」にしました'); render();
+    await attach(h, true);
+    if (fState === 'ok') toast('保存先を「' + h.name + '」にしました'); render();
   } catch (e) { if (e.name !== 'AbortError') toast('作れませんでした：' + e.message); }
 }
 async function connectOpen() {
   try {
     const [h] = await showOpenFilePicker({ types: FTYPES });
     if (await h.requestPermission({ mode: 'readwrite' }) !== 'granted') { toast('書き込みが許可されませんでした'); return; }
-    fh = h; await idbSet('file', h); fState = 'ok';
-    await loadFromFile(); toast('「' + h.name + '」を開きました'); render();
+    await attach(h, false);
+    if (fState === 'ok') toast('「' + h.name + '」を開きました'); render();
   } catch (e) { if (e.name !== 'AbortError') toast('開けませんでした：' + e.message); }
 }
 async function reconnect() {
   try {
     if (await fh.requestPermission({ mode: 'readwrite' }) === 'granted') { fState = 'ok'; await loadFromFile(); render(); }
-  } catch (e) { toast('再接続できませんでした：' + e.message); }
+  } catch (e) { failed(e); toast('再接続できませんでした：' + e.message); }
+}
+/* 空・壊れたファイルに、この端末の内容を書き込む（確認してから） */
+async function forceWrite() {
+  if (!confirm(`「${fh?.name}」に、この端末の内容（${countItems(data)}件）を書き込みますか？\n今のファイルの中身は置き換わります。`)) return;
+  try { if (await fh.requestPermission({ mode: 'readwrite' }) !== 'granted') return; fState = 'ok'; await putFile(); toast('書き込みました'); render(); }
+  catch (e) { failed(e); }
 }
 async function disconnect() {
-  await writeFile(); fh = null; fState = 'none'; await idbSet('file', undefined); render();
+  await writeFile(); fh = null; fState = 'none'; lastText = null; saving = false; clearTimeout(saveTimer); await idbSet('file', undefined); render();
 }
 async function initFile() {
   if (!hasFS) return;
   try {
+    bases = (await idbGet('bases')) || [];
     const h = await idbGet('file');
     if (!h) return;
     fh = h;
@@ -442,7 +709,8 @@ async function initFile() {
   } catch (e) { console.warn(e); fState = 'need'; }
   render();
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden && saving) writeFile(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { if (saving) writeFile(); } else checkFile(); });
+window.addEventListener('focus', checkFile);
 window.addEventListener('beforeunload', e => { if (saving) { writeFile(); e.preventDefault(); e.returnValue = ''; } });
 
 /* ============ URL 解析 ============ */
@@ -604,12 +872,13 @@ function renderState() {
   const b = $('#state');
   if (fState === 'ok') { b.className = 'state ok'; b.textContent = saving ? '保存中…' : (fh?.name || '保存済み'); b.title = '「' + (fh?.name || '') + '」に自動保存しています'; }
   else if (fState === 'unsupported') { b.className = 'state warn'; b.textContent = 'ブラウザ内のみ'; b.title = 'このブラウザはファイルへの自動保存に未対応です（Chrome を使ってください）'; }
-  else { b.className = 'state warn'; b.textContent = fState === 'need' ? '再接続が必要' : fState === 'err' ? '保存エラー' : 'ブラウザ内のみ'; b.title = 'クリックで保存ファイルの設定'; }
+  else { b.className = 'state warn'; b.textContent = fState === 'need' ? '再接続が必要' : fState === 'err' ? '保存エラー' : fState === 'hold' ? '確認が必要' : 'ブラウザ内のみ'; b.title = 'クリックで保存ファイルの設定'; }
 }
 function renderBanner() {
   const el = $('#banner');
   if (fState === 'none') el.innerHTML = '<span>データはまだブラウザ内にだけ保存されています。JSONファイルを選ぶと、以後は変更のたびに自動で保存します。</span><span class="sp"></span><button class="btn pri" data-act="fnew" type="button">保存用JSONを作る</button><button class="btn" data-act="fopen" type="button">既存のJSONを開く</button>';
   else if (fState === 'need') el.innerHTML = `<span>保存ファイル「${esc(fh?.name)}」への再接続が必要です（ブラウザの決まりで、開くたびに1回許可が要ります）。</span><span class="sp"></span><button class="btn pri" data-act="frecon" type="button">再接続</button>`;
+  else if (fState === 'hold') el.innerHTML = `<span>${esc(holdMsg)}消さないように書き込みを止めました（この端末の内容はブラウザ内に残っています）。同期の途中なら、少し待って読み直してください。</span><span class="sp"></span><button class="btn pri" data-act="frecon" type="button">読み直す</button><button class="btn" data-act="fforce" type="button">この端末の内容で書き込む</button>`;
   else if (fState === 'err') el.innerHTML = '<span>保存ファイルに書き込めませんでした。ファイルが移動・削除されていないか確認してください。</span><span class="sp"></span><button class="btn pri" data-act="frecon" type="button">もう一度試す</button><button class="btn" data-act="fnew" type="button">別のファイルにする</button>';
   else el.innerHTML = '';
 }
@@ -681,12 +950,22 @@ function pushUndo(label) {
   if (undoStack.length > UNDO_MAX) undoStack.shift();
   persistUndo(); renderUndo();
 }
+/* ほかの端末の変更（from → to）を、取り消し用の控えにも入れておく。取り消してもその変更は残る */
+function rebaseUndo(from, to) {
+  if (!undoStack.length || sameBody(from, to)) return;
+  for (const u of undoStack) {
+    try { u.snap = JSON.stringify(merge3(from, normalize(JSON.parse(u.snap)), to, 'm'), (k, v) => k === 'av' ? undefined : v); }
+    catch (e) { console.warn(e); }
+  }
+  persistUndo();
+}
 function undo() {
   const u = undoStack.pop(); if (!u) return;
   // 開いた日時・取得したアイコンは、戻したあとも新しい方を残す
   const keep = new Map();
   for (const s of data.sites) for (const c of s.cats) for (const it of c.items) keep.set(it.id, it);
-  data = normalize(JSON.parse(u.snap));
+  const { rev, hist } = data;
+  data = Object.assign(normalize(JSON.parse(u.snap)), { rev, hist });
   for (const s of data.sites) for (const c of s.cats) for (const it of c.items) {
     const n = keep.get(it.id), m = avMemo.get(it.id);
     if (n && (n.opened || 0) > (it.opened || 0)) it.opened = n.opened;
@@ -878,7 +1157,7 @@ $('#sDel').addEventListener('click', () => {
 const setDlg = $('#setDlg');
 function openSettings() {
   $('#fileInfo').textContent = !hasFS ? 'このブラウザはファイルへの自動保存に対応していません（Chrome / Edge で開いてください）。書き出し・読み込みは使えます。'
-    : fh ? `「${fh.name}」 — ${fState === 'ok' ? '接続中（自動保存）' : fState === 'need' ? '再接続が必要' : '書き込みエラー'}` : '未設定（ブラウザ内にだけ保存中）';
+    : fh ? `「${fh.name}」 — ${fState === 'ok' ? '接続中（自動保存）' : fState === 'need' ? '再接続が必要' : fState === 'hold' ? '確認が必要' : '書き込みエラー'}` : '未設定（ブラウザ内にだけ保存中）';
   for (const id of ['#bNew', '#bOpen']) $(id).hidden = !hasFS;
   $('#bDisc').hidden = !fh;
   $('#stDays').value = data.settings.staleDays;
@@ -909,7 +1188,7 @@ $('#impFile').onchange = async e => {
     const d = normalize(JSON.parse(await f.text()));
     const n = d.sites.reduce((a, s) => a + s.cats.reduce((m, c) => m + c.items.length, 0), 0);
     if (!confirm(`「${f.name}」（${d.sites.length} サイト・${n} 件）で今のデータを置き換えますか？`)) return;
-    setDlg.close(); withUndo('読み込みました', () => { data = d; });
+    setDlg.close(); withUndo('読み込みました', () => { const { rev, hist } = data; data = Object.assign(d, { rev, hist }); });
   } catch (err) { toast('読み込めませんでした：' + err.message); }
 };
 $('#bAvRetry').onclick = () => {
@@ -972,6 +1251,7 @@ document.addEventListener('click', e => {
     case 'fnew': connectNew(); break;
     case 'fopen': connectOpen(); break;
     case 'frecon': reconnect(); break;
+    case 'fforce': forceWrite(); break;
     case 'catmenu': {
       const s = findSite(catEl.dataset.sid), c = s.cats.find(x => x.id === catEl.dataset.cid);
       showMenu(a, [['名前を変更', () => renameCat(catEl)], ['このカテゴリに登録', () => openAdd({ sid: s.id, cid: c.id })],
