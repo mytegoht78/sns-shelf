@@ -149,6 +149,9 @@ dialog label.chk.off input{cursor:default}
 .toggle input:checked::after{transform:translateX(14px)}
 .toggle input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dupbox{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:8px 10px;border-radius:8px;background:var(--warns)}
+.dupbox .btn{font-size:12px;padding:5px 12px}
+.dupbox #dupAct:empty{display:none}
 .hint{font-size:12px;color:var(--mut);margin-top:-6px;min-height:18px}
 .hint.ok{color:var(--acc)}
 .hint.ng{color:var(--warn)}
@@ -237,14 +240,16 @@ dialog label.chk.off input{cursor:default}
     <label><span>ID</span><input id="fId" autocomplete="off"></label>
   </div>
   <label><span>表示名</span><input id="fName" autocomplete="off" placeholder="空欄なら ID"></label>
+  <label><span>本当のID（変わらないID・任意。ブックマークレットから貼ると入ります）</span><input id="fUid" autocomplete="off" placeholder="例：UCqmWJJolqAgjIdLqK3zD1QQ ／ 99008565"></label>
   <div><span class="lbl">カテゴリ</span><div class="catpick" id="fCats"></div></div>
   <label><span>メモ（なぜ保存したか など）</span><textarea id="fMemo" rows="2"></textarea></label>
   <div class="chkrow">
     <label class="chk"><input type="checkbox" id="fClosed">閉鎖済み</label>
     <label class="chk" id="noAvRow"><input type="checkbox" id="fNoAv">アイコンを取得しない</label>
   </div>
-  <div class="warn" id="dupMsg"></div>
+  <div class="dupbox" id="dupBox" hidden><div class="warn" id="dupMsg"></div><button type="button" class="btn" id="dupAct"></button></div>
   <div class="urlprev">開くURL：<a id="fPrev" target="_blank" rel="noopener"></a></div>
+  <div class="urlprev" id="fUidPrevRow" hidden>本当のIDで開く：<a id="fUidPrev" target="_blank" rel="noopener"></a></div>
   <div class="small" id="fInfo"></div>
   <div class="btns">
     <button type="button" class="btn danger" id="fDel">削除</button>
@@ -262,6 +267,7 @@ dialog label.chk.off input{cursor:default}
   <label><span>URL（ID の場所を {ID} にする）</span><input id="sTpl" autocomplete="off" placeholder="https://www.youtube.com/@{ID}/videos"></label>
   <div class="hint" id="sMsg"></div>
   <label><span>別のドメイン（任意・URL判定用、カンマ区切り）</span><input id="sAlias" autocomplete="off" placeholder="twitter.com"></label>
+  <label><span>本当のIDで開くURL（任意、ID の場所を {ID} にする）</span><input id="sUidTpl" autocomplete="off" placeholder="https://www.youtube.com/channel/{ID}/videos"></label>
   <label><span>アイコンの取得（unavatar.io）</span><select id="sAv"></select></label>
   <div class="btns">
     <button type="button" class="btn danger" id="sDel">サイトを削除</button>
@@ -319,11 +325,17 @@ const AV_PROVIDERS = [['', 'なし（頭文字）'], ['youtube', 'YouTube'], ['x
 
 function seed() {
   return { app: 'sns-shelf', version: 1, updatedAt: 0, settings: { staleDays: 30 }, sites: [
-    { id: uid(), name: 'YouTubeチャンネル', template: 'https://www.youtube.com/@{ID}/videos', aliases: '', avatar: 'youtube',
+    { id: uid(), name: 'YouTubeチャンネル', template: 'https://www.youtube.com/@{ID}/videos', uidTemplate: 'https://www.youtube.com/channel/{ID}/videos', aliases: '', avatar: 'youtube',
       cats: [{ id: uid(), name: '趣味', items: [] }, { id: uid(), name: '勉強', items: [] }] },
-    { id: uid(), name: 'Xユーザー', template: 'https://x.com/{ID}', aliases: 'twitter.com', avatar: 'x',
+    { id: uid(), name: 'Xユーザー', template: 'https://x.com/{ID}', uidTemplate: 'https://x.com/i/user/{ID}', aliases: 'twitter.com', avatar: 'x',
       cats: [{ id: uid(), name: 'インフルエンサー', items: [] }, { id: uid(), name: '公式', items: [] }] },
   ]};
+}
+function defaultUidTpl(t) {
+  t = String(t || '').toLowerCase();
+  if (/youtube\.com/.test(t)) return 'https://www.youtube.com/channel/{ID}/videos';
+  if (/(^|\/\/|\.)(x|twitter)\.com\//.test(t)) return 'https://x.com/i/user/{ID}';
+  return '';
 }
 function normalize(d) {
   if (!d || typeof d !== 'object' || !Array.isArray(d.sites)) throw new Error('SNSシェルフのデータではありません');
@@ -333,12 +345,15 @@ function normalize(d) {
   for (const s of d.sites) {
     s.id ||= uid(); s.name = String(s.name || 'サイト'); s.template = String(s.template || '');
     s.aliases = String(s.aliases || ''); s.avatar = String(s.avatar || '');
+    if (s.uidTemplate === undefined) s.uidTemplate = defaultUidTpl(s.template); // 本当のIDで開くURL（以前のデータには無い）
+    s.uidTemplate = String(s.uidTemplate || '');
     s.cats = Array.isArray(s.cats) ? s.cats : [];
     for (const c of s.cats) {
       c.id ||= uid(); c.name = String(c.name || 'カテゴリ'); c.items = Array.isArray(c.items) ? c.items : [];
       for (const it of c.items) {
         it.id ||= uid(); it.pid = String(it.pid || ''); it.name = String(it.name || '');
         it.memo = String(it.memo || ''); it.added = +it.added || Date.now(); it.opened = +it.opened || 0;
+        if (it.uid !== undefined) { it.uid = String(it.uid || '').trim(); if (!it.uid) delete it.uid; }
         if (!d.avFix1 && !it.av) { delete it.avMiss; delete it.avFails; } // 旧版は回数制限での失敗も数えていたのでやり直す
       }
     }
@@ -359,6 +374,7 @@ function findItem(iid) {
   return null;
 }
 const urlOf = (site, pid) => site.template.split('{ID}').join(encodeURIComponent(pid));
+const uidUrlOf = (site, u) => site.uidTemplate && u ? site.uidTemplate.split('{ID}').join(encodeURIComponent(u)) : '';
 const dispName = it => it.name || it.pid;
 const isStale = it => !it.closed && Date.now() - (it.opened || it.added) > data.settings.staleDays * DAY;
 function hue(s) { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) >>> 0; return h % 360; }
@@ -461,11 +477,15 @@ function merge3(B, M, T, pref = 'm') {
   const S = mergeKind('S'), C = mergeKind('C'), I = mergeKind('I');
   const siteOfCat = cid => (C.get(cid) || im.C.get(cid) || it3.C.get(cid))?.p;
   // 両方の端末で別々に登録した同じアカウントは1つにまとめる
+  // （本当のIDがあればそれでも、ハンドルでも同じとみなす。本当のIDが違えば別の人）
   const newT = new Map();
-  for (const x of I.values()) if (x.only === 't') newT.set(siteOfCat(x.p) + '\n' + x.o.pid.toLowerCase(), x);
+  const keysOf = x => [siteOfCat(x.p) + '\n' + x.o.pid.toLowerCase(), x.o.uid && siteOfCat(x.p) + '\nuid:' + x.o.uid].filter(Boolean);
+  for (const x of I.values()) if (x.only === 't') for (const k of keysOf(x)) newT.set(k, x);
   for (const [id, x] of [...I]) {
     if (x.only !== 'm') continue;
-    const y = newT.get(siteOfCat(x.p) + '\n' + x.o.pid.toLowerCase()); if (!y) continue;
+    const y = keysOf(x).map(k => newT.get(k)).find(Boolean); if (!y) continue;
+    if (x.o.uid && y.o.uid && x.o.uid !== y.o.uid) continue;
+    y.o.uid ||= x.o.uid; if (!y.o.uid) delete y.o.uid;
     y.o.name ||= x.o.name; y.o.opened = Math.max(y.o.opened || 0, x.o.opened || 0); y.o.av ||= x.o.av; if (!y.o.av) delete y.o.av;
     if (x.o.memo && x.o.memo !== y.o.memo) y.o.memo = y.o.memo ? y.o.memo + ' ／ ' + x.o.memo : x.o.memo;
     I.delete(id);
@@ -515,7 +535,7 @@ function alignIds(M, T) {
   for (const s of d.sites) {
     const ts = T.sites.find(x => x.id === s.id); if (!ts) continue;
     match(s.cats, ts.cats, (x, y) => x.name === y.name);
-    match(s.cats.flatMap(c => c.items), ts.cats.flatMap(c => c.items), (x, y) => x.pid.toLowerCase() === y.pid.toLowerCase());
+    match(s.cats.flatMap(c => c.items), ts.cats.flatMap(c => c.items), (x, y) => x.uid && y.uid ? x.uid === y.uid : x.pid.toLowerCase() === y.pid.toLowerCase());
   }
   return d;
 }
@@ -721,8 +741,8 @@ function toNorm(s) {
   if (!/^https?:\/\//i.test(s)) { if (/^[\w-]+(\.[\w-]+)+(\/|$)/.test(s)) s = 'https://' + s; else return null; }
   try { const u = new URL(s); return normHost(u.hostname) + u.pathname + u.search + u.hash; } catch { return null; }
 }
-function matchers(site) {
-  const body = site.template.replace(/^https?:\/\//i, '');
+function matchers(site, tpl = site.template) {
+  const body = tpl.replace(/^https?:\/\//i, '');
   const j = body.indexOf('{ID}'); if (j < 0) return [];
   const slash = body.indexOf('/');
   if (slash >= 0 && j > slash) {
@@ -736,6 +756,11 @@ function matchers(site) {
 function parseInput(str) {
   const n = toNorm(str);
   if (!n) { const pid = str.trim().replace(/^@/, ''); return pid ? { pid, isUrl: false } : null; }
+  // 本当のIDのURL（先に調べる。x.com/{ID} が x.com/i/user/… を拾わないように。youtube.com/channel/UC… や x.com/i/user/数字）
+  for (const s of data.sites) if (s.uidTemplate) for (const re of matchers(s, s.uidTemplate)) {
+    const m = n.match(re);
+    if (m) { let u = m[1]; try { u = decodeURIComponent(u); } catch {} return { site: s, uid: u, isUrl: true }; }
+  }
   for (const s of data.sites) for (const re of matchers(s)) {
     const m = n.match(re);
     if (m) { let pid = m[1]; try { pid = decodeURIComponent(pid); } catch {} return { site: s, pid: pid.replace(/^@/, ''), isUrl: true }; }
@@ -746,6 +771,23 @@ function findDup(siteId, pid, exceptId) {
   const s = findSite(siteId); if (!s || !pid) return null; const k = pid.toLowerCase();
   for (const c of s.cats) for (const it of c.items) if (it.id !== exceptId && it.pid.toLowerCase() === k) return { c, it };
   return null;
+}
+function findByUid(siteId, u, exceptId) {
+  const s = findSite(siteId); if (!s || !u) return null;
+  for (const c of s.cats) for (const it of c.items) if (it.id !== exceptId && it.uid === u) return { c, it };
+  return null;
+}
+/* 登録・編集しようとしている内容と、登録済みのものとの関係
+   same：同じハンドル（同じ人）／renamed：本当のIDが同じでハンドルが違う（ハンドルが変わった）
+   other：同じハンドルだが本当のIDが違う（別の人がハンドルを使っている）／fill：同じハンドルで、登録済みに本当のIDが無い */
+function dupInfo(siteId, pid, u, exceptId) {
+  const byU = findByUid(siteId, u, exceptId);
+  if (byU) return { kind: byU.it.pid.toLowerCase() === pid.toLowerCase() ? 'same' : 'renamed', ...byU };
+  const byP = findDup(siteId, pid, exceptId);
+  if (!byP) return null;
+  if (u && byP.it.uid && byP.it.uid !== u) return { kind: 'other', ...byP };
+  if (u && !byP.it.uid) return { kind: 'fill', ...byP };
+  return { kind: 'same', ...byP };
 }
 
 /* ============ アイコン ============ */
@@ -837,7 +879,9 @@ if (avPause > Date.now()) avTimer = setTimeout(runAvQueue, Math.min(avPause - Da
 async function iconFromUrl(id, url) {
   iconLoading.add(id);
   try {
-    const r = await fetch(url); if (!r.ok) throw new Error(r.status);
+    let r = await fetch(url);
+    if (r.status === 429 || r.status >= 500) { await sleep(2000); r = await fetch(url); } // 一時的に断られたらもう1回だけ
+    if (!r.ok) throw new Error(r.status);
     const av = await blobToAv(await r.blob());
     const f = findItem(id); if (f) { f.it.av = av; delete f.it.avMiss; delete f.it.avFails; save(false); }
   } catch (e) { console.warn('アイコンを読み込めませんでした', url, e); }
@@ -854,12 +898,12 @@ function sorted(items) {
 }
 function matchQ(it, q) {
   if (!q) return true;
-  const hay = (it.name + ' ' + it.pid + ' ' + it.memo).toLowerCase();
+  const hay = (it.name + ' ' + it.pid + ' ' + it.memo + ' ' + (it.uid || '')).toLowerCase();
   return q.split(/\s+/).every(w => hay.includes(w));
 }
 function chipHtml(site, it, canDrag) {
   const url = urlOf(site, it.pid);
-  const tip = [dispName(it) + (it.closed ? '（閉鎖済み）' : ''), '@' + it.pid, it.memo && 'メモ：' + it.memo,
+  const tip = [dispName(it) + (it.closed ? '（閉鎖済み）' : ''), '@' + it.pid, it.uid && '本当のID：' + it.uid, it.memo && 'メモ：' + it.memo,
     it.opened ? '最後に開いた：' + ago(it.opened) : 'まだ開いていない（登録 ' + ago(it.added) + '）'].filter(Boolean).join('\n');
   return `<div class="chip${isStale(it) ? ' stale' : ''}${it.closed ? ' closed' : ''}" data-iid="${it.id}"${canDrag ? ' draggable="true"' : ''}>`
     + `<a href="${esc(url)}" target="_blank" rel="noopener" draggable="false" title="${esc(tip)}">${avatarHtml(site, it)}<span class="nm">${esc(dispName(it))}</span>${it.memo ? '<span class="memo-dot"></span>' : ''}</a>`
@@ -1004,20 +1048,35 @@ function refreshItemDlg() {
   $('#noAvRow').hidden = !s?.avatar;
   const url = s && pid ? urlOf(s, pid) : '';
   $('#fPrev').textContent = url || '—'; url ? $('#fPrev').href = url : $('#fPrev').removeAttribute('href');
-  const d = s && findDup(s.id, pid, edit.iid);
-  $('#dupMsg').textContent = d ? `⚠ すでに「${d.c.name}」に「${dispName(d.it)}」として登録されています` : '';
+  const u = $('#fUid').value.trim(), uurl = s && u ? uidUrlOf(s, u) : '';
+  $('#fUidPrevRow').hidden = !uurl; $('#fUidPrev').textContent = uurl; uurl ? $('#fUidPrev').href = uurl : $('#fUidPrev').removeAttribute('href');
+  const d = s && pid ? dupInfo(s.id, pid, u, edit.iid) : s && u ? (x => x && { kind: 'same', ...x })(findByUid(s.id, u, edit.iid)) : null; // 本当のIDだけのとき
+  edit.dup = d;
+  let msg = '', act = '';
+  if (d) {
+    const where = `「${d.c.name}」に「${dispName(d.it)}」（@${d.it.pid}）`;
+    if (d.kind === 'same') msg = `⚠ すでに${where}として登録されています`;
+    else if (d.kind === 'renamed') {
+      msg = `⚠ 同じアカウントが${where}として登録されています。本当のIDが同じなので、ハンドルが変わったようです`;
+      if (pid) act = `登録済みのIDを @${pid} に更新する`;
+    } else if (d.kind === 'other') msg = `⚠ 同じハンドルの${where}が登録されていますが、本当のIDが違います（別の人がハンドルを使っている可能性があります）`;
+    else if (d.kind === 'fill') { msg = `⚠ すでに${where}として登録されています。登録済みのほうには本当のIDがありません`; act = '登録済みに本当のIDを追加する'; }
+  }
+  if (edit.mode !== 'add') act = '';
+  $('#dupBox').hidden = !msg; $('#dupMsg').textContent = msg; $('#dupAct').textContent = act;
 }
 function onUrlInput() {
   const v = $('#fUrl').value, m = $('#parseMsg');
   if (!v.trim()) { m.className = 'hint'; m.textContent = ''; return; }
   const r = parseInput(v);
   if (!r) return;
-  if (r.site) { $('#fSite').value = r.site.id; $('#fId').value = r.pid; m.className = 'hint ok'; m.textContent = `✓ ${r.site.name} ／ ID：${r.pid}`; renderCatPick(); }
+  if (r.site && r.uid) { $('#fSite').value = r.site.id; $('#fUid').value = r.uid; m.className = 'hint ok'; m.textContent = `✓ ${r.site.name} ／ 本当のID：${r.uid}（ハンドルの ID も入力してください）`; renderCatPick(); }
+  else if (r.site) { $('#fSite').value = r.site.id; $('#fId').value = r.pid; m.className = 'hint ok'; m.textContent = `✓ ${r.site.name} ／ ID：${r.pid}`; renderCatPick(); }
   else if (r.nomatch) { m.className = 'hint ng'; m.textContent = 'どのサイトのURL形式にも合いません。サイトとIDを指定するか、左の「サイトを追加」で形式を登録してください。'; }
   else { $('#fId').value = r.pid; m.className = 'hint'; m.textContent = 'ID として登録します。サイトを選んでください。'; }
   refreshItemDlg();
 }
-function openAdd({ text = '', sid, cid, name = '', icon = '' } = {}) {
+function openAdd({ text = '', sid, cid, name = '', icon = '', uid: u = '' } = {}) {
   if (!data.sites.length) { toast('先にサイトを追加してください'); return; }
   edit = { mode: 'add', iid: null, cid: cid || null, icon: /^https:\/\/\S+$/i.test(icon) ? icon : '' };
   $('#fIconRow').hidden = !edit.icon; if (edit.icon) $('#fIconImg').src = edit.icon; else $('#fIconImg').removeAttribute('src');
@@ -1025,7 +1084,7 @@ function openAdd({ text = '', sid, cid, name = '', icon = '' } = {}) {
   $('#urlRow').hidden = false; $('#fDel').hidden = true; $('#fAv').hidden = true; $('#fInfo').textContent = '';
   const vs = sid || (findSite(ui.view) ? ui.view : data.sites[0].id);
   fillSiteSelect($('#fSite'), vs);
-  $('#fUrl').value = text; $('#fId').value = ''; $('#fName').value = name; $('#fMemo').value = ''; $('#fNoAv').checked = false; $('#fClosed').checked = false; edit.noAvPrev = false; syncClosed();
+  $('#fUrl').value = text; $('#fId').value = ''; $('#fUid').value = u; $('#fName').value = name; $('#fMemo').value = ''; $('#fNoAv').checked = false; $('#fClosed').checked = false; edit.noAvPrev = false; syncClosed();
   $('#parseMsg').textContent = ''; $('#parseMsg').className = 'hint';
   renderCatPick(); onUrlInput(); refreshItemDlg();
   dlg.showModal();
@@ -1037,7 +1096,7 @@ function openEdit(iid) {
   $('#iTitle').textContent = '編集'; $('#fOk').textContent = '保存';
   $('#urlRow').hidden = true; $('#parseMsg').textContent = ''; $('#fDel').hidden = false; $('#fAv').hidden = !f.s.avatar;
   fillSiteSelect($('#fSite'), f.s.id);
-  $('#fId').value = f.it.pid; $('#fName').value = f.it.name; $('#fMemo').value = f.it.memo; $('#fNoAv').checked = !!f.it.noAv; $('#fClosed').checked = !!f.it.closed; edit.noAvPrev = !!f.it.noAv; syncClosed();
+  $('#fId').value = f.it.pid; $('#fUid').value = f.it.uid || ''; $('#fName').value = f.it.name; $('#fMemo').value = f.it.memo; $('#fNoAv').checked = !!f.it.noAv; $('#fClosed').checked = !!f.it.closed; edit.noAvPrev = !!f.it.noAv; syncClosed();
   const avSt = !f.s.avatar ? '' : f.it.av ? '　／　アイコン：取得済み' : f.it.noAv ? '　／　アイコン：取得しない'
     : (f.it.avFails || 0) >= AV_MAX_FAILS ? `　／　アイコン：${AV_MAX_FAILS}回取れなかったので停止中`
     : f.it.avFails ? `　／　アイコン：${f.it.avFails}回取れず、あとで再挑戦` : '';
@@ -1057,6 +1116,22 @@ $('#fClosed').addEventListener('change', syncClosed);
 $('#fNoAv').addEventListener('change', e => { edit.noAvPrev = e.target.checked; });
 $('#fUrl').addEventListener('input', onUrlInput);
 $('#fId').addEventListener('input', refreshItemDlg);
+$('#fUid').addEventListener('input', refreshItemDlg);
+/* 登録画面から、登録済みのほうを直す（ハンドルの更新・本当のIDの追加） */
+$('#dupAct').addEventListener('click', () => {
+  const d = edit.dup; if (!d || edit.mode !== 'add') return;
+  const f = findItem(d.it.id); if (!f) return;
+  const pid = $('#fId').value.trim().replace(/^@/, ''), u = $('#fUid').value.trim();
+  const before = f.it.pid;
+  pushUndo(`「${dispName(f.it)}」の${d.kind === 'renamed' ? 'ID更新' : '本当のID追加'}`);
+  if (d.kind === 'renamed' && pid) { f.it.pid = pid; if (!f.it.av) { delete f.it.avMiss; delete f.it.avFails; } } // 新しいハンドルでアイコンを取り直せるように
+  if (u) f.it.uid = u;
+  const icon = edit.icon && !f.it.av && !f.it.noAv && !f.it.closed ? edit.icon : '';
+  if (icon) iconLoading.add(f.it.id);
+  dlg.close(); save(); flash(f.it.id);
+  if (icon) iconFromUrl(f.it.id, icon);
+  toast(d.kind === 'renamed' ? `「${dispName(f.it)}」のIDを @${before} → @${f.it.pid} に更新しました` : `「${dispName(f.it)}」に本当のIDを追加しました`, '元に戻す', undo);
+});
 $('#fSite').addEventListener('change', () => { edit.cid = null; renderCatPick(); refreshItemDlg(); });
 $('#fCats').addEventListener('click', e => {
   const b = e.target.closest('button[data-cid]'); if (!b) return;
@@ -1078,8 +1153,12 @@ $('#itemForm').addEventListener('submit', e => {
     cat = s.cats.find(c => c.name === nm) || (s.cats.push({ id: uid(), name: nm, items: [] }), s.cats[s.cats.length - 1]);
   } else cat = s.cats.find(c => c.id === edit.cid);
   if (!cat) { undoStack.pop(); persistUndo(); renderUndo(); toast('カテゴリを選んでください'); return; }
-  const dup = findDup(s.id, pid, edit.iid);
-  if (dup && !confirm(`「${dispName(dup.it)}」はすでに「${dup.c.name}」に登録されています。それでも登録しますか？`)) {
+  const uidV = $('#fUid').value.trim();
+  const dup = dupInfo(s.id, pid, uidV, edit.iid);
+  const dupQ = !dup ? '' : dup.kind === 'renamed' ? `本当のIDが同じ「${dispName(dup.it)}」（@${dup.it.pid}）が「${dup.c.name}」に登録されています（ハンドルが変わったようです）。それでも別に登録しますか？`
+    : dup.kind === 'other' ? `同じハンドルの「${dispName(dup.it)}」が「${dup.c.name}」に登録されていますが、本当のIDが違います。登録しますか？`
+    : `「${dispName(dup.it)}」はすでに「${dup.c.name}」に登録されています。それでも登録しますか？`;
+  if (dup && !confirm(dupQ)) {
     undoStack.pop(); persistUndo(); renderUndo();
     if (!cat.items.length && edit.cid === '__new' && cat === s.cats[s.cats.length - 1] && !document.querySelector(`.cat[data-cid="${cat.id}"]`)) s.cats.pop(); // 作りかけのカテゴリを消す
     return;
@@ -1088,12 +1167,14 @@ $('#itemForm').addEventListener('submit', e => {
   let target;
   if (edit.mode === 'add') {
     target = { id: uid(), pid, name, memo, added: Date.now(), opened: 0 };
+    if (uidV) target.uid = uidV;
     cat.items.push(target);
     toast(`「${dispName(target)}」を ${s.name} › ${cat.name} に登録しました`, '元に戻す', undo);
   } else {
     const f = findItem(edit.iid); target = f.it;
     if (target.pid !== pid || f.s.id !== s.id) resetAv(target);
     Object.assign(target, { pid, name, memo });
+    if (uidV) target.uid = uidV; else delete target.uid;
     if (target.noAv && !noAvVal()) resetAv(target); // 取得しない→取得する に戻したら最初から
     if (f.c !== cat) { f.c.items.splice(f.i, 1); cat.items.push(target); }
   }
@@ -1123,7 +1204,7 @@ $('#sAv').innerHTML = AV_PROVIDERS.map(([v, l]) => `<option value="${v}">${l}</o
 function openSite(sid) {
   sEdit = sid || null; const s = sid && findSite(sid);
   $('#sTitle').textContent = s ? 'サイトを編集' : 'サイトを追加';
-  $('#sName').value = s?.name || ''; $('#sTpl').value = s?.template || ''; $('#sAlias').value = s?.aliases || ''; $('#sAv').value = s?.avatar || '';
+  $('#sName').value = s?.name || ''; $('#sTpl').value = s?.template || ''; $('#sAlias').value = s?.aliases || ''; $('#sUidTpl').value = s?.uidTemplate || ''; $('#sAv').value = s?.avatar || '';
   $('#sDel').hidden = !s; checkTpl(); sdlg.showModal(); $('#sName').focus();
 }
 function checkTpl() {
@@ -1138,7 +1219,9 @@ $('#siteForm').addEventListener('submit', e => {
   e.preventDefault();
   const name = $('#sName').value.trim(); if (!name) { $('#sName').focus(); return; }
   if (!checkTpl()) { $('#sTpl').focus(); return; }
-  const v = { name, template: $('#sTpl').value.trim(), aliases: $('#sAlias').value.trim(), avatar: $('#sAv').value };
+  const ut = $('#sUidTpl').value.trim();
+  if (ut && (ut.split('{ID}').length !== 2 || !/^https?:\/\//i.test(ut))) { toast('本当のIDで開くURLは https:// から始め、{ID} を1つだけ入れてください'); $('#sUidTpl').focus(); return; }
+  const v = { name, template: $('#sTpl').value.trim(), uidTemplate: ut, aliases: $('#sAlias').value.trim(), avatar: $('#sAv').value };
   pushUndo(sEdit ? `サイト「${findSite(sEdit).name}」の編集` : `サイト「${name}」の追加`);
   if (sEdit) {
     const s = findSite(sEdit);
@@ -1287,7 +1370,11 @@ $('#addForm').addEventListener('submit', e => { e.preventDefault(); const v = $(
 /* 貼り付け・ドロップ：1行目 URL、2行目 表示名（任意） */
 function splitPaste(t) {
   const lines = String(t).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
-  return { text: lines[0] || '', name: lines[1] || '', icon: lines[2] || '' }; // 3行目＝アイコン画像のURL（ブックマークレット）
+  // ブックマークレットの形式：1行目 URL、2行目 表示名、以降に https のアイコン画像URL と「uid:本当のID」（空行は飛ばす）
+  const rest = lines.slice(1);
+  const uidL = rest.find(x => /^uid:/i.test(x)), icon = rest.find(x => x !== uidL && /^https:\/\//i.test(x));
+  const name = rest.find(x => x !== uidL && x !== icon) || '';
+  return { text: lines[0] || '', name, icon: icon || '', uid: uidL ? uidL.slice(4).trim() : '' };
 }
 const typing = el => !!el?.closest?.('input,textarea,select,[contenteditable]');
 document.addEventListener('paste', e => {
